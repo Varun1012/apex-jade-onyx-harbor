@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Sans TC", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: #0c0d0c;
+  --color-background: #0c0d0c;
+  --color-surface: #141614;
+  --color-card: #171916;
+  --color-popover: #1b1d1a;
+  --color-fg: #ecece8;
+  --color-foreground: #ecece8;
+  --color-muted: #8b9188;
+  --color-muted-foreground: #8b9188;
+  --color-subtle: #5e635c;
+  --color-border: #2a2d29;
+  --color-input: #121412;
+  --color-primary: #c5cbc4;
+  --color-primary-foreground: #121412;
+  --color-secondary: #1e211e;
+  --color-secondary-foreground: #ecece8;
+  --color-ring: #c5cbc4;
+  --color-up: #c4453c;
+  --color-up-foreground: #fff7f6;
+  --color-up-soft: #c4453c22;
+  --color-down: #2f8f6b;
+  --color-down-foreground: #f3fff9;
+  --color-down-soft: #2f8f6b22;
+  --color-accent: #c5cbc4;
+  --color-accent-foreground: #121412;
+
+  --radius: 0.75rem;
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body,
+  #app {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    min-height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

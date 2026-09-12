@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "港股模擬盤",
+      "hasCanvas": true,
+      "bodyTextLen": 1324,
+      "bodyTextHash": "f033cb113947460c058f06771a1e278f69a55f278fe418a068d299f8b54b2beb",
+      "bodyTextPrefix": "PAPER HANG SENG 港股模擬盤 暫停 1x 4x 12x 音樂 重開戶口 模擬時間 週一 09:30 恒生指數 25",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "港股模擬盤",
+      "hasCanvas": true,
+      "bodyTextLen": 1309,
+      "bodyTextHash": "12817a6025753a9f605d8f4bb97235d01db905c11c71eb45a9269752d070b0ff",
+      "bodyTextPrefix": "PAPER HANG SENG 港股模擬盤 暫停 1x 4x 12x 音樂 重開戶口 模擬時間 週一 09:30 恒生指數 25",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
