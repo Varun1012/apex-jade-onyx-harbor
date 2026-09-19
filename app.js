@@ -95,13 +95,69 @@
     }
     return cur;
   }
+  function sessionMins(ms) {
+    const p = hkParts(ms);
+    if (p.weekday < 1 || p.weekday > 5) return null;
+    const mins = p.hour * 60 + p.minute;
+    if ((mins >= 9 * 60 + 30 && mins < 12 * 60) || (mins >= 13 * 60 && mins < 16 * 60)) return mins;
+    return null;
+  }
+  function lastSessionBar(p, step) {
+    const last = 16 * 60 - step;
+    return hkDate(p.year, p.month, p.day, Math.floor(last / 60), last % 60);
+  }
   function bucketStart(clock, tf) {
     const p = hkParts(clock);
     if (tf === "1d") return hkDate(p.year, p.month, p.day, 9, 30);
     const step = tf === "5m" ? 5 : 15;
     const mins = p.hour * 60 + p.minute;
     const snapped = Math.floor(mins / step) * step;
-    return hkDate(p.year, p.month, p.day, Math.floor(snapped / 60), snapped % 60);
+    const t = hkDate(p.year, p.month, p.day, Math.floor(snapped / 60), snapped % 60);
+    const sm = sessionMins(t);
+    if (sm != null && sm % step === 0) return t;
+    if (p.weekday >= 1 && p.weekday <= 5 && mins >= 12 * 60 && mins < 13 * 60) {
+      return hkDate(p.year, p.month, p.day, 11, 60 - step);
+    }
+    if (p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60) return lastSessionBar(p, step);
+    if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30) {
+      let d = hkDate(p.year, p.month, p.day, 9, 30) - 86400000;
+      for (let i = 0; i < 6; i++) {
+        const q = hkParts(d);
+        if (q.weekday >= 1 && q.weekday <= 5) return lastSessionBar(q, step);
+        d -= 86400000;
+      }
+    }
+    return hkDate(p.year, p.month, p.day, 9, 30);
+  }
+  function prevBarTime(t, tf) {
+    if (tf === "1d") {
+      const p = hkParts(t);
+      let d = hkDate(p.year, p.month, p.day, 9, 30) - 86400000;
+      for (let i = 0; i < 10; i++) {
+        const q = hkParts(d);
+        if (q.weekday >= 1 && q.weekday <= 5) return hkDate(q.year, q.month, q.day, 9, 30);
+        d -= 86400000;
+      }
+      return d;
+    }
+    const step = tf === "5m" ? 5 : 15;
+    const p = hkParts(t);
+    const mins = p.hour * 60 + p.minute;
+    if (mins === 13 * 60) return hkDate(p.year, p.month, p.day, 11, 60 - step);
+    if (mins === 9 * 60 + 30) {
+      let d = hkDate(p.year, p.month, p.day, 9, 30) - 86400000;
+      for (let i = 0; i < 6; i++) {
+        const q = hkParts(d);
+        if (q.weekday >= 1 && q.weekday <= 5) return lastSessionBar(q, step);
+        d -= 86400000;
+      }
+    }
+    return t - step * 60000;
+  }
+  function barTimes(clock, tf, n) {
+    const out = [bucketStart(clock, tf)];
+    while (out.length < n) out.unshift(prevBarTime(out[0], tf));
+    return out;
   }
 
   function dayKey(ms) {
@@ -214,22 +270,27 @@
     }
     return q;
   }
-  function seedCandles(quotes) {
+  function seedCandles(quotes, clock) {
     const book = {};
     for (const i of UNIVERSE) {
-      const mk = (n, vol) => {
+      const mk = (tf, n, vol) => {
+        const times = barTimes(clock, tf, n);
         const arr = [];
         let p = quotes[i.s].last;
-        for (let k = n; k >= 0; k--) {
+        for (let k = times.length - 1; k >= 0; k--) {
           p = Math.max(i.start * 0.45, p * (1 + gauss() * vol));
           const c = rnd(p, i);
           const o = rnd(c * (1 + (Math.random() - 0.5) * vol * 0.8), i);
           const w = Math.abs(c - o) * (0.4 + Math.random());
-          arr.push({ o, h: Math.max(o, c) + w * 0.4, l: Math.min(o, c) - w * 0.4, c });
+          arr[k] = { t: times[k], o, h: Math.max(o, c) + w * 0.4, l: Math.min(o, c) - w * 0.4, c };
         }
+        const last = arr[arr.length - 1];
+        last.c = quotes[i.s].last;
+        last.h = Math.max(last.h, last.c);
+        last.l = Math.min(last.l, last.c);
         return arr;
       };
-      book[i.s] = { "1d": mk(70, i.vol * 0.4), "15m": mk(64, i.vol * 0.25), "5m": mk(72, i.vol * 0.18) };
+      book[i.s] = { "1d": mk("1d", 70, i.vol * 0.4), "15m": mk("15m", 64, i.vol * 0.25), "5m": mk("5m", 72, i.vol * 0.18) };
     }
     return book;
   }
@@ -314,7 +375,7 @@
   }
 
   const state = fresh();
-  state.candles = seedCandles(state.quotes);
+  state.candles = seedCandles(state.quotes, state.clock);
 
   try {
     const raw = localStorage.getItem(SAVE);
@@ -335,30 +396,65 @@
           clock: s.clock || state.clock,
           extreme: s.extreme || null,
         });
+        state.candles = seedCandles(state.quotes, state.clock);
       }
     }
   } catch (_) {}
 
+  let persistTimer = null;
   function persist() {
-    try {
-      localStorage.setItem(
-        SAVE,
-        JSON.stringify({
-          cash: state.cash,
-          pos: state.pos,
-          fills: state.fills.slice(0, 40),
-          sel: state.sel,
-          speed: state.speed,
-          tf: state.tf,
-          qty: state.qty,
-          lev: state.lev,
-          won: state.won,
-          busted: state.busted,
-          clock: state.clock,
-          extreme: state.extreme,
-        })
-      );
-    } catch (_) {}
+    if (persistTimer != null) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      try {
+        localStorage.setItem(
+          SAVE,
+          JSON.stringify({
+            cash: state.cash,
+            pos: state.pos,
+            fills: state.fills.slice(0, 40),
+            sel: state.sel,
+            speed: state.speed,
+            tf: state.tf,
+            qty: state.qty,
+            lev: state.lev,
+            won: state.won,
+            busted: state.busted,
+            clock: state.clock,
+            extreme: state.extreme,
+          })
+        );
+      } catch (_) {}
+    }, 2000);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        if (persistTimer) {
+          clearTimeout(persistTimer);
+          persistTimer = null;
+        }
+        try {
+          localStorage.setItem(
+            SAVE,
+            JSON.stringify({
+              cash: state.cash,
+              pos: state.pos,
+              fills: state.fills.slice(0, 40),
+              sel: state.sel,
+              speed: state.speed,
+              tf: state.tf,
+              qty: state.qty,
+              lev: state.lev,
+              won: state.won,
+              busted: state.busted,
+              clock: state.clock,
+              extreme: state.extreme,
+            })
+          );
+        } catch (_) {}
+      }
+    });
   }
 
   function equity() {
@@ -550,10 +646,15 @@
   function drawChart(el, cs) {
     const dpr = devicePixelRatio || 1;
     const w = el.clientWidth, h = 240;
-    el.width = w * dpr;
-    el.height = h * dpr;
+    const needW = Math.max(1, Math.floor(w * dpr));
+    const needH = Math.floor(h * dpr);
+    if (el.width !== needW || el.height !== needH) {
+      el.width = needW;
+      el.height = needH;
+    }
     const ctx = el.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
     const data = cs.slice(-64);
     if (!data.length) return;
     let min = Math.min(...data.map((c) => c.l)), max = Math.max(...data.map((c) => c.h));
@@ -608,7 +709,7 @@
   function hardReset() {
     const keepMusic = state.music;
     Object.assign(state, fresh());
-    state.candles = seedCandles(state.quotes);
+    state.candles = seedCandles(state.quotes, state.clock);
     state.music = keepMusic;
     persist();
     render();
@@ -678,9 +779,34 @@
       selChg.className = chg >= 0 ? "up" : "down";
     }
     const cnv = document.getElementById("kline");
-    if (cnv) drawChart(cnv, state.candles[state.sel][state.tf]);
+    if (cnv) scheduleChart();
+    const cap = document.getElementById("k-cap");
+    if (cap) cap.textContent = kCaption();
+  }
+  function kCaption() {
+    const series = state.candles[state.sel][state.tf] || [];
+    const shown = series.slice(-64);
+    const a = shown[0], b = shown.at(-1);
+    const lab = state.tf === "5m" ? "5分鐘K" : state.tf === "15m" ? "15分鐘K" : "日K";
+    const fmt = (t) => {
+      if (!t) return "—";
+      const p = hkParts(t);
+      const pad = (n) => String(n).padStart(2, "0");
+      return pad(p.month) + "/" + pad(p.day) + (state.tf === "1d" ? "" : " " + pad(p.hour) + ":" + pad(p.minute));
+    };
+    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 午休 12:00–13:00 無K · SMA20 · 紅升綠跌";
+  }
+  let chartRaf = 0;
+  function scheduleChart() {
+    if (chartRaf) return;
+    chartRaf = requestAnimationFrame(() => {
+      chartRaf = 0;
+      const cnv = document.getElementById("kline");
+      if (cnv) drawChart(cnv, state.candles[state.sel][state.tf]);
+    });
   }
   let tickerTimer = null;
+  let stepping = false;
   function armTicker() {
     if (tickerTimer) {
       clearInterval(tickerTimer);
@@ -688,7 +814,13 @@
     }
     if (!state.speed) return;
     tickerTimer = setInterval(() => {
-      if (state.speed) step();
+      if (stepping || !state.speed) return;
+      stepping = true;
+      try {
+        step();
+      } finally {
+        stepping = false;
+      }
     }, Math.max(80, 900 / state.speed));
   }
 
@@ -723,7 +855,7 @@
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-        <p class="rule">交易時段：星期一至五 09:30–12:00、13:00–16:00。每日或有個別股份突然暴升／暴跌逾三成；基本面穩健者幾乎不會。</p>
+        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" autocomplete="off" />
@@ -741,6 +873,7 @@
           <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
+          <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
           <div class="hints">
             <div class="muted">技術走勢提示 · 教學用途，非投資建議</div>
             ${hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("")}
@@ -778,6 +911,8 @@
     `;
     const cnv = document.getElementById("kline");
     if (cnv) drawChart(cnv, series);
+    const cap = document.getElementById("k-cap");
+    if (cap) cap.textContent = kCaption();
     $.querySelectorAll("[data-s]").forEach((b) => {
       b.onclick = () => {
         state.sel = b.dataset.s;
