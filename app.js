@@ -403,7 +403,7 @@
   }
   function startTicker() {
     if (!ticker) {
-      ticker = new Audio("audio/market-ticker.mp3");
+      ticker = new Audio("audio/market-ticker.mp3?v=20260920");
       ticker.loop = true;
       ticker.preload = "auto";
       ticker.volume = 0.62;
