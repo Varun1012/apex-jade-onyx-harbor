@@ -227,20 +227,21 @@ function MusicToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => 
     handle.current = createAmbient();
     return () => handle.current?.stop();
   }, []);
-  useEffect(() => {
-    if (on) void handle.current?.start().then(() => handle.current?.setMuted(false));
-    else handle.current?.setMuted(true);
-  }, [on]);
   return (
     <Button
       variant="outline"
       size="sm"
-      onClick={() => onChange(!on)}
+      onClick={() => {
+        const next = !on;
+        if (next) void handle.current?.start();
+        else handle.current?.setMuted(true);
+        onChange(next);
+      }}
       aria-pressed={on}
-      aria-label={on ? "關閉 Lo-fi" : "開啟 Lo-fi"}
+      aria-label={on ? "關閉行情音樂" : "開啟行情音樂"}
     >
       {on ? <Volume2 /> : <VolumeX />}
-      {on ? "Lo-fi 開" : "Lo-fi"}
+      {on ? "行情 開" : "行情"}
     </Button>
   );
 }

@@ -394,121 +394,26 @@
     render();
   }
 
-  let loFi = null;
+  let ticker = null;
   function toggleMusic() {
     state.music = !state.music;
-    if (state.music) startLofi();
-    else if (loFi) {
-      loFi.gain.gain.setValueAtTime(0.0001, loFi.ctx.currentTime);
-      loFi.stop = true;
-    }
+    if (state.music) startTicker();
+    else if (ticker) ticker.pause();
     render();
   }
-  function startLofi() {
-    if (loFi && !loFi.stop) {
-      loFi.gain.gain.setValueAtTime(0.2, loFi.ctx.currentTime);
-      loFi.ctx.resume();
-      return;
+  function startTicker() {
+    if (!ticker) {
+      ticker = new Audio("audio/market-ticker.mp3");
+      ticker.loop = true;
+      ticker.preload = "auto";
+      ticker.volume = 0.62;
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && state.music && ticker) {
+          ticker.play().catch(() => {});
+        }
+      });
     }
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const master = ctx.createGain();
-    master.gain.value = 0.2;
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 1550;
-    master.connect(lp);
-    lp.connect(ctx.destination);
-    const len = ctx.sampleRate * 2;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    let b0 = 0;
-    for (let i = 0; i < len; i++) {
-      const w = Math.random() * 2 - 1;
-      b0 = 0.97 * b0 + 0.03 * w;
-      d[i] = b0 * 0.35;
-    }
-    const vinyl = ctx.createBufferSource();
-    vinyl.buffer = buf;
-    vinyl.loop = true;
-    const vg = ctx.createGain();
-    vg.gain.value = 0.04;
-    vinyl.connect(vg);
-    vg.connect(master);
-    vinyl.start();
-    const chords = [
-      [220, 261.63, 329.63, 392],
-      [146.83, 174.61, 220, 293.66],
-      [196, 246.94, 293.66, 349.23],
-      [130.81, 164.81, 196, 246.94],
-    ];
-    const roots = [55, 73.42, 49, 65.41];
-    let i = 0, t = ctx.currentTime;
-    const beat = 60 / 78;
-    const handle = { ctx, gain: master, stop: false };
-    loFi = handle;
-    function pulse() {
-      if (handle.stop || !state.music) return;
-      const ch = chords[Math.floor(i / 4) % 4];
-      if (i % 4 === 0) {
-        ch.forEach((f, n) => {
-          const o = ctx.createOscillator(), g = ctx.createGain();
-          const mod = ctx.createOscillator(), mg = ctx.createGain();
-          o.type = "sine";
-          o.frequency.value = f;
-          mod.frequency.value = f * 2;
-          mg.gain.value = f * 1.2;
-          mod.connect(mg);
-          mg.connect(o.frequency);
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(n ? 0.028 : 0.045, t + 0.03);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + 1.55);
-          o.connect(g);
-          g.connect(master);
-          o.start(t);
-          o.stop(t + 1.65);
-          mod.start(t);
-          mod.stop(t + 1.65);
-        });
-        const bass = ctx.createOscillator(), bg = ctx.createGain();
-        bass.type = "triangle";
-        bass.frequency.value = roots[Math.floor(i / 4) % 4];
-        bg.gain.setValueAtTime(0.08, t);
-        bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-        bass.connect(bg);
-        bg.connect(master);
-        bass.start(t);
-        bass.stop(t + 0.45);
-      }
-      const k = ctx.createOscillator(), kg = ctx.createGain();
-      k.type = "sine";
-      k.frequency.setValueAtTime(130, t);
-      k.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-      kg.gain.setValueAtTime(0.14, t);
-      kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-      k.connect(kg);
-      kg.connect(master);
-      k.start(t);
-      k.stop(t + 0.22);
-      if (i % 2 === 1) {
-        const sn = ctx.createBufferSource();
-        sn.buffer = buf;
-        const bp = ctx.createBiquadFilter();
-        bp.type = "bandpass";
-        bp.frequency.value = 1800;
-        const sg = ctx.createGain();
-        sg.gain.setValueAtTime(0.08, t);
-        sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-        sn.connect(bp);
-        bp.connect(sg);
-        sg.connect(master);
-        sn.start(t);
-        sn.stop(t + 0.14);
-      }
-      t += beat;
-      i++;
-      setTimeout(pulse, beat * 1000);
-    }
-    pulse();
+    ticker.play().catch(() => {});
   }
 
   function drawChart(el, cs) {
@@ -600,7 +505,7 @@
           </div>
           <div class="controls">
             <div class="bar">${[0, 1, 4, 12].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
-            <button type="button" class="ghost" id="lofi" aria-pressed="${state.music}">${state.music ? "Lo-fi 開" : "Lo-fi"}</button>
+            <button type="button" class="ghost" id="ticker" aria-pressed="${state.music}">${state.music ? "行情 開" : "行情"}</button>
             <button type="button" class="ghost" id="reset">重開戶口</button>
           </div>
         </div>
@@ -711,8 +616,8 @@
     if (buy) buy.onclick = () => place("buy");
     const sell = document.getElementById("sell");
     if (sell) sell.onclick = () => place("sell");
-    const lofi = document.getElementById("lofi");
-    if (lofi) lofi.onclick = toggleMusic;
+    const tickerBtn = document.getElementById("ticker");
+    if (tickerBtn) tickerBtn.onclick = toggleMusic;
     const reset = document.getElementById("reset");
     if (reset) reset.onclick = () => {
       if (confirm("重開戶口會清空持倉與進度。確定？")) hardReset();

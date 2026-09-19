@@ -12,7 +12,7 @@ Hong Kong paper-trading desk. Start with **HK$10,000**. Reach **HK$100,000,000**
 - Includes **0434 博雅互動** and **3988 中國銀行**
 - Buy at **Ask**, sell at **Bid** (港股紅升綠跌)
 - Candles: 5m / 15m / daily, with SMA, RSI, and pattern hints
-- Lo-fi after one click (browser autoplay rules)
+- Market Ticker soundtrack after one click (browser autoplay rules)
 - Progress saves in this browser
 
 Teaching simulation only — not live quotes or investment advice.
