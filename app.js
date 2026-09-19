@@ -282,7 +282,7 @@
           const c = rnd(p, i);
           const o = rnd(c * (1 + (Math.random() - 0.5) * vol * 0.8), i);
           const w = Math.abs(c - o) * (0.4 + Math.random());
-          arr[k] = { t: times[k], o, h: Math.max(o, c) + w * 0.4, l: Math.min(o, c) - w * 0.4, c };
+          arr[k] = { t: times[k], o, h: Math.max(o, c) + w * 0.4, l: Math.min(o, c) - w * 0.4, c, v: Math.max(1, Math.round((i.k === "index" ? 900 : i.lot) * (8 + Math.random() * 36) * (tf === "1d" ? 330 : tf === "15m" ? 15 : 5) * (0.5 + Math.abs(c - o) / Math.max(c, 1e-9) * 55))) };
         }
         const last = arr[arr.length - 1];
         last.c = quotes[i.s].last;
@@ -309,14 +309,45 @@
     if (!l) return 100;
     return 100 - 100 / (1 + g / l);
   }
+  function overlayLive(cs) {
+    if (!cs.length) return cs;
+    const lastPx = state.quotes[state.sel].last;
+    const out = cs.slice();
+    const b = out[out.length - 1];
+    out[out.length - 1] = { ...b, c: lastPx, h: Math.max(b.h, lastPx), l: Math.min(b.l, lastPx) };
+    return out;
+  }
+  function riskReward(cs) {
+    if (cs.length < 5) return { longRR: null, shortRR: null, support: null, resist: null };
+    const w = cs.slice(-20);
+    const resist = Math.max(...w.map((c) => c.h));
+    const support = Math.min(...w.map((c) => c.l));
+    const last = cs.at(-1).c;
+    const up = Math.max(0, resist - last);
+    const dn = Math.max(0, last - support);
+    return {
+      longRR: dn > 1e-9 ? up / dn : null,
+      shortRR: up > 1e-9 ? dn / up : null,
+      support,
+      resist,
+    };
+  }
   function hints(cs) {
-    const cl = cs.map((c) => c.c);
+    const liveCs = overlayLive(cs);
+    const cl = liveCs.map((c) => c.c);
     const last = cl.at(-1);
     const m20 = sma(cl, Math.min(20, cl.length));
     const r = rsi(cl);
+    const rr = riskReward(liveCs);
+    const vols = liveCs.map((c) => c.v || 0);
+    const vma = sma(vols, Math.min(20, vols.length));
+    const vr = vma ? vols.at(-1) / vma : null;
     const out = [];
+    if (rr.longRR != null && rr.shortRR != null) {
+      out.push(["neu", "區間盈虧比  多 " + rr.longRR.toFixed(1) + ":1  ·  空 " + rr.shortRR.toFixed(1) + ":1", "近 20 根高 " + fmtP(rr.resist) + "、低 " + fmtP(rr.support) + "。隨現價實時改寫，教學上報酬較高的一方較佳。"]);
+    }
     if (cs.length >= 2) {
-      const a = cs.at(-2), b = cs.at(-1);
+      const a = liveCs.at(-2), b = liveCs.at(-1);
       const body = Math.abs(b.c - b.o), rng = b.h - b.l || 1e-9;
       const lower = Math.min(b.o, b.c) - b.l, upper = b.h - Math.max(b.o, b.c);
       const up = b.c >= b.o;
@@ -348,7 +379,11 @@
             : ["neu", "RSI " + r.toFixed(0) + " 中性", "動能未極端。"]
       );
     }
-    return out.slice(0, 4);
+    if (vr != null) {
+      if (vr >= 1.35) out.push([liveCs.at(-1).c >= liveCs.at(-1).o ? "up" : "down", "此根放量 " + vr.toFixed(1) + "×均量", "高於近 20 期均量，突破或跌破較有說服力。"]);
+      else if (vr <= 0.65) out.push(["neu", "此根縮量 " + vr.toFixed(1) + "×均量", "低於均量，方向未獲資金確認。"]);
+    }
+    return out.slice(0, 5);
   }
 
   function fresh() {
@@ -484,6 +519,11 @@
 
   function pushC(sym, last) {
     const book = state.candles[sym];
+    const inst = BY[sym];
+    const unit = inst.k === "index" ? 900 : inst.lot;
+    const prev = inst && state.quotes[sym] ? state.quotes[sym].prev : last;
+    const chg = prev ? Math.abs(last - prev) / prev : 0;
+    const tickV = Math.max(1, Math.round(unit * (5 + Math.random() * 20) * (0.65 + chg * 70)));
     for (const tf of ["5m", "15m", "1d"]) {
       const arr = book[tf];
       const cap = tf === "5m" ? 220 : tf === "15m" ? 140 : 90;
@@ -493,9 +533,10 @@
         c.c = last;
         c.h = Math.max(c.h, last);
         c.l = Math.min(c.l, last);
+        c.v = (c.v || 0) + tickV;
       } else {
         const o = c ? c.c : last;
-        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last });
+        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: tickV });
         if (arr.length > cap) arr.shift();
       }
     }
@@ -643,9 +684,15 @@
     ticker.play().catch(() => {});
   }
 
+  function fmtVol(n) {
+    const a = Math.abs(n);
+    if (a >= 1e8) return (a / 1e8).toFixed(2) + "億";
+    if (a >= 1e4) return (a / 1e4).toFixed(1) + "萬";
+    return Math.round(a).toLocaleString("en-HK");
+  }
   function drawChart(el, cs) {
     const dpr = devicePixelRatio || 1;
-    const w = el.clientWidth, h = 240;
+    const w = el.clientWidth, h = 312;
     const needW = Math.max(1, Math.floor(w * dpr));
     const needH = Math.floor(h * dpr);
     if (el.width !== needW || el.height !== needH) {
@@ -655,16 +702,24 @@
     const ctx = el.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const data = cs.slice(-64);
-    if (!data.length) return;
+    const raw = cs.slice(-64);
+    if (!raw.length) return;
+    const lastPx = state.quotes[state.sel].last;
+    const data = raw.map((c, i, arr) =>
+      i === arr.length - 1 ? { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) } : c
+    );
     let min = Math.min(...data.map((c) => c.l)), max = Math.max(...data.map((c) => c.h));
     if (min === max) {
       min *= 0.99;
       max *= 1.01;
     }
-    const pad = 52, plotW = w - pad - 10, plotH = h - 24;
-    const y = (v) => 12 + ((max - v) / (max - min)) * plotH;
+    const pad = 52, plotW = w - pad - 10, priceH = 206, gap = 10, volH = 70;
+    const span = max - min;
+    min -= span * 0.08;
+    max += span * 0.08;
+    const y = (v) => 10 + ((max - v) / (max - min)) * priceH;
     const slot = plotW / data.length;
+    const bodyW = Math.max(2, Math.min(9, slot * 0.56));
     ctx.strokeStyle = "#2a2d29";
     ctx.fillStyle = "#8b9188";
     ctx.font = "10px IBM Plex Mono, monospace";
@@ -678,19 +733,16 @@
       ctx.fillText(fmtP(v), pad - 6, y(v) + 3);
     }
     const cl = data.map((c) => c.c);
-    const m = sma(cl, Math.min(20, cl.length));
-    if (m != null) {
-      ctx.strokeStyle = "#c5cbc488";
-      ctx.beginPath();
-      data.forEach((_, i) => {
-        const slice = cl.slice(Math.max(0, i - 19), i + 1);
-        const v = slice.reduce((a, b) => a + b, 0) / slice.length;
-        const x = pad + slot * i + slot / 2;
-        if (i) ctx.lineTo(x, y(v));
-        else ctx.moveTo(x, y(v));
-      });
-      ctx.stroke();
-    }
+    ctx.strokeStyle = "#c5cbc488";
+    ctx.beginPath();
+    data.forEach((_, i) => {
+      const slice = cl.slice(Math.max(0, i - 19), i + 1);
+      const v = slice.reduce((a, b) => a + b, 0) / slice.length;
+      const x = pad + slot * i + slot / 2;
+      if (i) ctx.lineTo(x, y(v));
+      else ctx.moveTo(x, y(v));
+    });
+    ctx.stroke();
     data.forEach((c, i) => {
       const x = pad + slot * i + slot / 2;
       const up = c.c >= c.o;
@@ -702,8 +754,38 @@
       ctx.lineTo(x, y(c.l));
       ctx.stroke();
       const top = y(Math.max(c.o, c.c)), bot = y(Math.min(c.o, c.c));
-      ctx.fillRect(x - Math.max(2, slot * 0.28), top, Math.max(2, slot * 0.56), Math.max(1, bot - top));
+      ctx.fillRect(x - bodyW / 2, top, bodyW, Math.max(1, bot - top));
     });
+    const volTop = 10 + priceH + gap;
+    ctx.strokeStyle = "#2a2d29";
+    ctx.beginPath();
+    ctx.moveTo(pad, volTop);
+    ctx.lineTo(w - 8, volTop);
+    ctx.stroke();
+    const vols = data.map((c) => c.v || 0);
+    const maxV = Math.max(...vols, 1);
+    ctx.fillStyle = "#8b9188";
+    ctx.fillText(fmtVol(maxV), pad - 6, volTop + 10);
+    ctx.fillText("量", pad - 6, volTop + volH);
+    data.forEach((c, i) => {
+      const x = pad + slot * i + slot / 2;
+      const vh = Math.max(1, ((c.v || 0) / maxV) * (volH - 4));
+      ctx.globalAlpha = i === data.length - 1 ? 0.95 : 0.72;
+      ctx.fillStyle = c.c >= c.o ? "#c4453c" : "#2f8f6b";
+      ctx.fillRect(x - bodyW / 2, volTop + volH - vh, bodyW, vh);
+    });
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#c5cbc466";
+    ctx.beginPath();
+    vols.forEach((_, i) => {
+      const slice = vols.slice(Math.max(0, i - 19), i + 1);
+      const v = slice.reduce((a, b) => a + b, 0) / slice.length;
+      const x = pad + slot * i + slot / 2;
+      const yy = volTop + volH - (v / maxV) * (volH - 4);
+      if (i) ctx.lineTo(x, yy);
+      else ctx.moveTo(x, yy);
+    });
+    ctx.stroke();
   }
 
   function hardReset() {
@@ -782,6 +864,29 @@
     if (cnv) scheduleChart();
     const cap = document.getElementById("k-cap");
     if (cap) cap.textContent = kCaption();
+    paintAdvice();
+  }
+  function paintAdvice() {
+    const series = overlayLive(state.candles[state.sel][state.tf] || []);
+    const rr = riskReward(series);
+    const longEl = document.getElementById("rr-long");
+    const shortEl = document.getElementById("rr-short");
+    if (longEl) longEl.textContent = rr.longRR != null ? rr.longRR.toFixed(1) + " : 1" : "—";
+    if (shortEl) shortEl.textContent = rr.shortRR != null ? rr.shortRR.toFixed(1) + " : 1" : "—";
+    const longBox = document.getElementById("rr-long-box");
+    const shortBox = document.getElementById("rr-short-box");
+    const longBetter = rr.longRR != null && rr.shortRR != null && rr.longRR >= rr.shortRR;
+    if (longBox) longBox.className = "rr-cell" + (longBetter ? " hot-up" : "");
+    if (shortBox) shortBox.className = "rr-cell" + (!longBetter ? " hot-down" : "");
+    const tgtL = document.getElementById("rr-long-t");
+    const tgtS = document.getElementById("rr-short-t");
+    if (tgtL) tgtL.textContent = rr.resist != null ? "目標 " + fmtP(rr.resist) : "";
+    if (tgtS) tgtS.textContent = rr.support != null ? "目標 " + fmtP(rr.support) : "";
+    const hs = hints(state.candles[state.sel][state.tf] || []);
+    const box = document.getElementById("hints-live");
+    if (box) {
+      box.innerHTML = hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("");
+    }
   }
   function kCaption() {
     const series = state.candles[state.sel][state.tf] || [];
@@ -794,7 +899,7 @@
       const pad = (n) => String(n).padStart(2, "0");
       return pad(p.month) + "/" + pad(p.day) + (state.tf === "1d" ? "" : " " + pad(p.hour) + ":" + pad(p.minute));
     };
-    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 午休 12:00–13:00 無K · SMA20 · 紅升綠跌";
+    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20 · 紅升綠跌";
   }
   let chartRaf = 0;
   function scheduleChart() {
@@ -874,9 +979,13 @@
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
+          <div class="rr">
+            <div class="rr-cell" id="rr-long-box"><div class="cap">偏多盈虧比</div><div class="px mono" id="rr-long">—</div><div class="muted" id="rr-long-t"></div></div>
+            <div class="rr-cell" id="rr-short-box"><div class="cap">偏空盈虧比</div><div class="px mono" id="rr-short">—</div><div class="muted" id="rr-short-t"></div></div>
+          </div>
           <div class="hints">
-            <div class="muted">技術走勢提示 · 教學用途，非投資建議</div>
-            ${hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("")}
+            <div class="muted">實時盈虧比 · 技術提示 · 教學用途，非投資建議</div>
+            <div id="hints-live">${hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("")}</div>
           </div>
           <div class="bidask">
             <div class="bid"><div class="cap">買入價 Bid（賣出成交）</div><div class="px mono">${fmtP(q.bid)}</div></div>
@@ -913,6 +1022,7 @@
     if (cnv) drawChart(cnv, series);
     const cap = document.getElementById("k-cap");
     if (cap) cap.textContent = kCaption();
+    paintAdvice();
     $.querySelectorAll("[data-s]").forEach((b) => {
       b.onclick = () => {
         state.sel = b.dataset.s;

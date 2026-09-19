@@ -173,7 +173,14 @@ section.col { background: var(--bg); padding: 16px; min-width: 0; }
 .ask { background: var(--up-soft); color: var(--up); }
 .bid .px, .ask .px { font-size: 20px; margin-top: 2px; }
 .cap { font-size: 11px; opacity: 0.85; }
-canvas.kline { width: 100%; height: 240px; display: block; margin: 8px 0; }
+canvas.kline { width: 100%; height: 312px; display: block; margin: 8px 0; }
+.rr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
+.rr-cell { border-radius: 10px; padding: 10px 12px; background: var(--secondary); }
+.rr-cell .px { font-size: 20px; margin-top: 2px; }
+.rr-cell.hot-up { background: var(--up-soft); }
+.rr-cell.hot-down { background: var(--down-soft); }
+.rr-cell.hot-up .px { color: var(--up); }
+.rr-cell.hot-down .px { color: var(--down); }
 .hints {
   border: 1px solid var(--border);
   border-radius: var(--radius);
