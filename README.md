@@ -1,6 +1,6 @@
 # 港股模擬盤 · apex-jade-onyx-harbor
 
-[![Deploy Pages](https://github.com/Varun1012/apex-jade-onyx-harbor/actions/workflows/pages.yml/badge.svg)](https://github.com/Varun1012/apex-jade-onyx-harbor/actions/workflows/pages.yml)
+[![Check site](https://github.com/Varun1012/apex-jade-onyx-harbor/actions/workflows/pages.yml/badge.svg)](https://github.com/Varun1012/apex-jade-onyx-harbor/actions/workflows/pages.yml)
 
 **Play here:** https://varun1012.github.io/apex-jade-onyx-harbor/
 
