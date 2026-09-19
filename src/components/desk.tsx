@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, memo, type ReactNode } from "react";
 import {
   RotateCcw,
   TrendingUp,
@@ -13,10 +13,10 @@ import { CandleChart } from "@/components/candle-chart";
 import { Sparkline } from "@/components/sparkline";
 import { formatHkd, formatPct, formatPrice, formatQty, formatSimTime } from "@/lib/format";
 import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, UNIVERSE } from "@/lib/market/universe";
-import { analyze } from "@/lib/market/ta";
+import { advise } from "@/lib/market/ta";
 import type { Tf } from "@/lib/market/candles";
 import { createAmbient, type AmbientHandle } from "@/lib/ambient";
-import { equityOf, positionValue, useDesk, type Speed } from "@/lib/store";
+import { equityOf, useDesk, type Speed } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 function Signed({ n, children }: { n: number; children: ReactNode }) {
@@ -31,7 +31,16 @@ function useTicker() {
   const busted = useDesk((s) => s.busted);
   useEffect(() => {
     if (speed === 0 || won || busted) return;
-    const id = window.setInterval(tick, Math.max(80, 900 / speed));
+    let busy = false;
+    const id = window.setInterval(() => {
+      if (busy) return;
+      busy = true;
+      try {
+        tick();
+      } finally {
+        busy = false;
+      }
+    }, Math.max(80, 900 / speed));
     return () => window.clearInterval(id);
   }, [tick, speed, won, busted]);
 }
@@ -43,162 +52,237 @@ export function Desk() {
     hydrateHistories();
   }, [hydrateHistories]);
 
-  const cash = useDesk((s) => s.cash);
-  const quotes = useDesk((s) => s.quotes);
-  const positions = useDesk((s) => s.positions);
-  const clock = useDesk((s) => s.clock);
-  const speed = useDesk((s) => s.speed);
-  const setSpeed = useDesk((s) => s.setSpeed);
-  const musicOn = useDesk((s) => s.musicOn);
-  const setMusicOn = useDesk((s) => s.setMusicOn);
-  const selected = useDesk((s) => s.selected);
-  const select = useDesk((s) => s.select);
-  const won = useDesk((s) => s.won);
-  const busted = useDesk((s) => s.busted);
-  const reset = useDesk((s) => s.reset);
-  const news = useDesk((s) => s.news);
-  const fills = useDesk((s) => s.fills);
-  const histories = useDesk((s) => s.histories);
-  const toast = useDesk((s) => s.toast);
-  const clearToast = useDesk((s) => s.clearToast);
-  const equity = equityOf(cash, positions, quotes);
-  const pnl = equity - STARTING_CASH;
-  const hsi = quotes.HSI;
-  const hsiChg = hsi ? (hsi.last - hsi.prevClose) / hsi.prevClose : 0;
-  const progress = Math.min(1, equity / GOAL_EQUITY);
-
-  useEffect(() => {
-    if (!toast) return;
-    const id = window.setTimeout(clearToast, 3200);
-    return () => window.clearTimeout(id);
-  }, [toast, clearToast]);
-
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <header className="border-b border-border px-4 py-3 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
-              PAPER HANG SENG
-            </p>
-            <h1 className="font-medium text-xl tracking-tight">港股模擬盤</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <SpeedControl speed={speed} onChange={setSpeed} disabled={won || busted} />
-            <MusicToggle on={musicOn} onChange={setMusicOn} />
-            <Button variant="outline" size="sm" onClick={reset} aria-label="重開戶口">
-              <RotateCcw />
-              重開戶口
-            </Button>
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="模擬時間" value={formatSimTime(clock)} />
-          <Stat
-            label="恒生指數"
-            value={hsi ? hsi.last.toLocaleString("en-HK") : "—"}
-            sub={
-              hsi ? (
-                <Signed n={hsiChg}>
-                  {hsi.last - hsi.prevClose >= 0 ? "+" : "−"}
-                  {Math.abs(hsi.last - hsi.prevClose).toFixed(0)} {formatPct(hsiChg)}
-                </Signed>
-              ) : null
-            }
-          />
-          <Stat label="現金" value={formatHkd(cash)} />
-          <Stat
-            label="總資產"
-            value={formatHkd(equity)}
-            sub={
-              <Signed n={pnl}>
-                {formatHkd(pnl)} · {formatPct(pnl / STARTING_CASH)}
-              </Signed>
-            }
-          />
-        </div>
-        <div className="mt-4">
-          <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>任務：由 {formatHkd(STARTING_CASH, 0)} 做到財富自由</span>
-            <span className="tabular-nums">{formatHkd(GOAL_EQUITY, 0)}</span>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-[var(--motion-fast)]"
-              style={{ width: `${Math.max(1.2, progress * 100)}%` }}
-            />
-          </div>
-        </div>
-      </header>
-
-      {news[0] ? (
-        <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 text-sm sm:px-6">
-          <Badge variant="outline">行情</Badge>
-          <p className="min-w-0 truncate text-muted-foreground">{news[0].text}</p>
-        </div>
-      ) : null}
-
+      <HeaderBar />
+      <NewsStrip />
       <main className="grid gap-px bg-border lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)_minmax(260px,0.85fr)]">
         <section className="order-2 bg-background lg:order-1">
-          <Watchlist />
+          <WatchlistMemo />
         </section>
         <section className="order-1 bg-background p-4 sm:p-5 lg:order-2">
           <Ticket />
         </section>
         <section className="order-3 bg-background p-4 sm:p-5">
           <Holdings />
-          <div className="mt-6">
-            <h2 className="mb-2 text-sm font-medium">成交紀錄</h2>
-            {fills.length === 0 ? (
-              <p className="text-sm text-muted-foreground">尚未落盤。買入以賣出價成交，賣出以買入價成交。</p>
-            ) : (
-              <ul className="max-h-56 space-y-2 overflow-auto text-sm">
-                {fills.slice(0, 12).map((f) => (
-                  <li key={f.id} className="flex items-center justify-between gap-2">
-                    <span className={f.side === "buy" ? "text-up" : "text-down"}>
-                      {f.side === "buy" ? "買入" : "賣出"} {f.symbol}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatQty(f.qty)} @ {formatPrice(f.price)}
-                      {f.leverage > 1 ? ` ×${f.leverage}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <Fills />
         </section>
       </main>
+      <EndOverlay />
+      <Toast />
+    </div>
+  );
+}
 
-      {(won || busted) && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-4 sm:items-center">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg">
-            <p className="text-[11px] tracking-[0.16em] text-muted-foreground">
-              {won ? "MISSION COMPLETE" : "MARGIN CALL"}
-            </p>
-            <h2 className="mt-1 text-2xl font-medium tracking-tight">
-              {won ? "財富自由" : "戶口爆倉"}
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {won
-                ? "總資產已達港幣一億。你可以重開戶口，再以一萬本金挑戰一次。"
-                : "保證金已耗盡，持倉被強制平倉。重開戶口後本金重置為港幣一萬。"}
-            </p>
-            <p className="mt-3 font-mono text-lg tabular-nums">{formatHkd(equity)}</p>
-            <Button className="mt-5 w-full" onClick={reset}>
-              再來一局
-            </Button>
-          </div>
+function HeaderBar() {
+  const speed = useDesk((s) => s.speed);
+  const setSpeed = useDesk((s) => s.setSpeed);
+  const musicOn = useDesk((s) => s.musicOn);
+  const setMusicOn = useDesk((s) => s.setMusicOn);
+  const won = useDesk((s) => s.won);
+  const busted = useDesk((s) => s.busted);
+  const reset = useDesk((s) => s.reset);
+
+  return (
+    <header className="border-b border-border px-4 py-3 sm:px-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
+            PAPER HANG SENG
+          </p>
+          <h1 className="font-medium text-xl tracking-tight">港股模擬盤</h1>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SpeedControl speed={speed} onChange={setSpeed} disabled={won || busted} />
+          <MusicToggle on={musicOn} onChange={setMusicOn} />
+          <Button variant="outline" size="sm" onClick={reset} aria-label="重開戶口">
+            <RotateCcw />
+            重開戶口
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <ClockStat />
+        <HsiStat />
+        <CashStat />
+        <EquityStat />
+      </div>
+      <div className="mt-4">
+        <GoalBar />
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function ClockStat() {
+  const clock = useDesk((s) => s.clock);
+  return <Stat label="模擬時間" value={formatSimTime(clock)} />;
+}
+
+function HsiStat() {
+  const last = useDesk((s) => s.quotes.HSI?.last);
+  const prev = useDesk((s) => s.quotes.HSI?.prevClose);
+  const hsiChg = last && prev ? (last - prev) / prev : 0;
+  return (
+    <Stat
+      label="恒生指數"
+      value={last ? last.toLocaleString("en-HK") : "—"}
+      sub={
+        last && prev ? (
+          <Signed n={hsiChg}>
+            {last - prev >= 0 ? "+" : "−"}
+            {Math.abs(last - prev).toFixed(0)} {formatPct(hsiChg)}
+          </Signed>
+        ) : null
+      }
+    />
+  );
+}
+
+function CashStat() {
+  const cash = useDesk((s) => s.cash);
+  return <Stat label="現金" value={formatHkd(cash)} />;
+}
+
+function EquityStat() {
+  const cash = useDesk((s) => s.cash);
+  const positions = useDesk((s) => s.positions);
+  const quotes = useDesk((s) => s.quotes);
+  const equity = equityOf(cash, positions, quotes);
+  const pnl = equity - STARTING_CASH;
+  return (
+    <Stat
+      label="總資產"
+      value={formatHkd(equity)}
+      sub={
+        <Signed n={pnl}>
+          {formatHkd(pnl)} · {formatPct(pnl / STARTING_CASH)}
+        </Signed>
+      }
+    />
+  );
+}
+
+function GoalBar() {
+  const cash = useDesk((s) => s.cash);
+  const positions = useDesk((s) => s.positions);
+  const quotes = useDesk((s) => s.quotes);
+  const equity = equityOf(cash, positions, quotes);
+  const progress = Math.min(1, equity / GOAL_EQUITY);
+  return (
+    <>
+      <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>任務：由 {formatHkd(STARTING_CASH, 0)} 做到財富自由</span>
+        <span className="tabular-nums">{formatHkd(GOAL_EQUITY, 0)}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+        <div
+          className="h-full rounded-full bg-primary transition-[width] duration-[var(--motion-fast)]"
+          style={{ width: `${Math.max(1.2, progress * 100)}%` }}
+        />
+      </div>
+    </>
+  );
+}
+
+function NewsStrip() {
+  const news = useDesk((s) => s.news[0]);
+  if (!news) return null;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 border-b px-4 py-2 text-sm sm:px-6",
+        news.extreme
+          ? news.sign === 1
+            ? "border-up/40 bg-up-soft"
+            : "border-down/40 bg-down-soft"
+          : "border-border bg-surface",
       )}
+    >
+      <Badge variant="outline">{news.extreme ? (news.sign === 1 ? "暴升" : "暴跌") : "行情"}</Badge>
+      <p
+        className={cn(
+          "min-w-0 truncate",
+          news.extreme ? (news.sign === 1 ? "text-up" : "text-down") : "text-muted-foreground",
+        )}
+      >
+        {news.text}
+      </p>
+    </div>
+  );
+}
 
-      {toast ? (
-        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-sm shadow-lg">
-          {toast}
-        </div>
-      ) : null}
+function Fills() {
+  const fills = useDesk((s) => s.fills);
+  return (
+    <div className="mt-6">
+      <h2 className="mb-2 text-sm font-medium">成交紀錄</h2>
+      {fills.length === 0 ? (
+        <p className="text-sm text-muted-foreground">尚未落盤。買入以賣出價成交，賣出以買入價成交。</p>
+      ) : (
+        <ul className="max-h-56 space-y-2 overflow-auto text-sm">
+          {fills.slice(0, 12).map((f) => (
+            <li key={f.id} className="flex items-center justify-between gap-2">
+              <span className={f.side === "buy" ? "text-up" : "text-down"}>
+                {f.side === "buy" ? "買入" : "賣出"} {f.symbol}
+              </span>
+              <span className="tabular-nums text-muted-foreground">
+                {formatQty(f.qty)} @ {formatPrice(f.price)}
+                {f.leverage > 1 ? ` ×${f.leverage}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
-      <p className="sr-only">已選 {selected}</p>
+function EndOverlay() {
+  const won = useDesk((s) => s.won);
+  const busted = useDesk((s) => s.busted);
+  const cash = useDesk((s) => s.cash);
+  const positions = useDesk((s) => s.positions);
+  const quotes = useDesk((s) => s.quotes);
+  const reset = useDesk((s) => s.reset);
+  if (!won && !busted) return null;
+  const equity = equityOf(cash, positions, quotes);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/80 p-4 sm:items-center">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg">
+        <p className="text-[11px] tracking-[0.16em] text-muted-foreground">
+          {won ? "MISSION COMPLETE" : "MARGIN CALL"}
+        </p>
+        <h2 className="mt-1 text-2xl font-medium tracking-tight">{won ? "財富自由" : "戶口爆倉"}</h2>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {won
+            ? "總資產已達港幣一億。你可以重開戶口，再以一萬本金挑戰一次。"
+            : "保證金已耗盡，持倉被強制平倉。重開戶口後本金重置為港幣一萬。"}
+        </p>
+        <p className="mt-3 font-mono text-lg tabular-nums">{formatHkd(equity)}</p>
+        <Button className="mt-5 w-full" onClick={reset}>
+          再來一局
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Toast() {
+  const toast = useDesk((s) => s.toast);
+  const clearToast = useDesk((s) => s.clearToast);
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(clearToast, 3200);
+    return () => window.clearTimeout(id);
+  }, [toast, clearToast]);
+  if (!toast) return null;
+  return (
+    <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-sm shadow-lg">
+      {toast}
     </div>
   );
 }
@@ -282,11 +366,8 @@ function SpeedControl({
 }
 
 function Watchlist() {
-  const quotes = useDesk((s) => s.quotes);
-  const selected = useDesk((s) => s.selected);
-  const select = useDesk((s) => s.select);
-  const histories = useDesk((s) => s.histories);
   const [q, setQ] = useState("");
+  const listRef = useRef<HTMLUListElement>(null);
   const rows = useMemo(() => {
     const n = q.trim();
     return UNIVERSE.filter(
@@ -295,7 +376,7 @@ function Watchlist() {
   }, [q]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
         <h2 className="text-sm font-medium">市場</h2>
         <Input
@@ -303,6 +384,8 @@ function Watchlist() {
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜尋代號 / 名稱"
           className="h-9 max-w-48"
+          autoComplete="off"
+          spellCheck={false}
         />
       </div>
       <div className="mt-2 hidden grid-cols-[72px_1fr_88px_72px] px-4 text-[11px] text-muted-foreground sm:grid sm:px-5">
@@ -311,79 +394,76 @@ function Watchlist() {
         <span className="text-right">賣 / 買</span>
         <span className="text-right">走勢</span>
       </div>
-      <ul className="max-h-[48vh] overflow-auto pb-4 lg:max-h-[70vh]">
-        {rows.map((inst) => {
-          const qt = quotes[inst.symbol];
-          if (!qt) return null;
-          const chg = (qt.last - qt.prevClose) / qt.prevClose;
-          const hist = histories[inst.symbol] ?? [qt.last];
-          const active = selected === inst.symbol;
-          return (
-            <li key={inst.symbol}>
-              <button
-                type="button"
-                onClick={() => select(inst.symbol)}
-                className={cn(
-                  "grid w-full grid-cols-[72px_1fr_auto] items-center gap-2 px-4 py-2.5 text-left sm:grid-cols-[72px_1fr_88px_72px] sm:px-5",
-                  active ? "bg-secondary" : "hover:bg-secondary/60",
-                )}
-              >
-                <span className="font-mono text-sm tabular-nums">{inst.symbol}</span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm">{inst.name}</span>
-                  <span className="text-[11px] text-muted-foreground">{inst.sector}</span>
-                </span>
-                <span className="text-right">
-                  <span className="block font-mono text-sm tabular-nums">{formatPrice(qt.last)}</span>
-                  <Signed n={chg}>
-                    <span className="text-[11px]">{formatPct(chg)}</span>
-                  </Signed>
-                </span>
-                <span className="hidden justify-end sm:flex">
-                  <Sparkline data={hist} up={chg >= 0} />
-                </span>
-              </button>
-            </li>
-          );
-        })}
+      <ul
+        ref={listRef}
+        data-watchlist="market"
+        className="max-h-[48vh] overflow-auto overscroll-contain pb-4 [overflow-anchor:none] lg:max-h-[70vh]"
+      >
+        {rows.map((inst) => (
+          <WatchRow key={inst.symbol} symbol={inst.symbol} name={inst.name} sector={inst.sector} />
+        ))}
       </ul>
     </div>
   );
 }
 
+const WatchlistMemo = memo(Watchlist);
+
+const WatchRow = memo(function WatchRow({
+  symbol,
+  name,
+  sector,
+}: {
+  symbol: string;
+  name: string;
+  sector: string;
+}) {
+  const qt = useDesk((s) => s.quotes[symbol]);
+  const selected = useDesk((s) => s.selected === symbol);
+  const hist = useDesk((s) => s.histories[symbol]);
+  const select = useDesk((s) => s.select);
+  if (!qt) return null;
+  const chg = (qt.last - qt.prevClose) / qt.prevClose;
+  const spark = hist ?? [qt.last];
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => select(symbol)}
+        className={cn(
+          "grid w-full grid-cols-[72px_1fr_auto] items-center gap-2 px-4 py-2.5 text-left sm:grid-cols-[72px_1fr_88px_72px] sm:px-5",
+          selected ? "bg-secondary" : "hover:bg-secondary/60",
+          Math.abs(chg) >= 0.3 && (chg > 0 ? "bg-up-soft" : "bg-down-soft"),
+        )}
+      >
+        <span className="font-mono text-sm tabular-nums">{symbol}</span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm">{name}</span>
+          <span className="text-[11px] text-muted-foreground">
+            {sector}
+            {Math.abs(chg) >= 0.3 ? (chg > 0 ? " · 暴升" : " · 暴跌") : ""}
+          </span>
+        </span>
+        <span className="text-right">
+          <span className="block font-mono text-sm tabular-nums">{formatPrice(qt.last)}</span>
+          <Signed n={chg}>
+            <span className="text-[11px]">{formatPct(chg)}</span>
+          </Signed>
+        </span>
+        <span className="hidden justify-end sm:flex">
+          <Sparkline data={spark} up={chg >= 0} />
+        </span>
+      </button>
+    </li>
+  );
+});
+
 function Ticket() {
   const selected = useDesk((s) => s.selected);
-  const quotes = useDesk((s) => s.quotes);
-  const candles = useDesk((s) => s.candles);
-  const cash = useDesk((s) => s.cash);
-  const place = useDesk((s) => s.place);
   const inst = BY_SYMBOL[selected];
-  const q = quotes[selected];
-  const [qty, setQty] = useState("1");
-  const [lev, setLev] = useState(1);
-  const [err, setErr] = useState<string | null>(null);
   const [tf, setTf] = useState<Tf>("15m");
 
-  useEffect(() => {
-    setLev(1);
-    setErr(null);
-    setQty("1");
-  }, [selected, inst?.kind]);
-
-  if (!inst || !q) return null;
-  const n = Math.max(0, Math.floor(Number(qty) || 0));
-  const levClamped = Math.min(lev, inst.maxLeverage);
-  const buyNotional = n * q.ask * inst.pointValue;
-  const sellNotional = n * q.bid * inst.pointValue;
-  const buyMargin = buyNotional / levClamped;
-  const series = candles?.[selected]?.[tf] ?? [];
-  const chg = (q.last - q.prevClose) / q.prevClose;
-  const hints = analyze(series);
-
-  function submit(side: "buy" | "sell") {
-    const msg = place(side, n, levClamped);
-    setErr(msg);
-  }
+  if (!inst) return null;
 
   const tfs: { id: Tf; label: string }[] = [
     { id: "5m", label: "5分鐘" },
@@ -393,21 +473,7 @@ function Ticket() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-sm text-muted-foreground">{inst.symbol}</p>
-          <h2 className="text-xl font-medium tracking-tight">{inst.name}</h2>
-        </div>
-        <Badge variant={inst.kind === "index" ? "outline" : "default"}>
-          {inst.kind === "index" ? "指數差價 · 每點 HK$1" : inst.kind === "etf" ? "ETF" : "正股 · 支援碎股"}
-        </Badge>
-      </div>
-      <div className="mt-3 flex items-end gap-4">
-        <p className="font-mono text-3xl tabular-nums tracking-tight">{formatPrice(q.last)}</p>
-        <Signed n={chg}>
-          <span className="text-sm">{formatPct(chg)}</span>
-        </Signed>
-      </div>
+      <TicketHead symbol={selected} />
       <div className="mt-3 flex rounded-md border border-border p-0.5">
         {tfs.map((t) => (
           <button
@@ -424,140 +490,364 @@ function Ticket() {
         ))}
       </div>
       <div className="mt-2">
-        <CandleChart candles={series} />
+        <CandleChart symbol={selected} tf={tf} />
       </div>
-      <div className="mt-3 space-y-2 rounded-lg border border-border bg-card p-3">
-        <p className="text-[11px] tracking-wide text-muted-foreground">技術走勢提示 · 教學用途，非投資建議</p>
-        {hints.map((h) => (
-          <div key={h.title}>
-            <p className={cn("text-sm font-medium", h.bias === "up" ? "text-up" : h.bias === "down" ? "text-down" : "text-foreground")}>
-              {h.title}
-            </p>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">{h.body}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-lg bg-down-soft px-3 py-2">
-          <p className="text-[11px] text-down">買入價 Bid（賣出成交）</p>
-          <p className="font-mono text-lg tabular-nums text-down">{formatPrice(q.bid)}</p>
-        </div>
-        <div className="rounded-lg bg-up-soft px-3 py-2">
-          <p className="text-[11px] text-up">賣出價 Ask（買入成交）</p>
-          <p className="font-mono text-lg tabular-nums text-up">{formatPrice(q.ask)}</p>
-        </div>
-      </div>
+      <Hints symbol={selected} tf={tf} />
+      <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
         港股慣例：紅升綠跌。買入以賣出價成交，賣出以買入價成交。可沽空。恒指迷你最高十倍槓桿。
       </p>
-      <div className="mt-4 grid gap-3">
-        <label className="text-xs text-muted-foreground">
-          數量{inst.kind === "index" ? "（口）" : "（股）"}
-          <Input
-            className="mt-1"
-            inputMode="numeric"
-            value={qty}
-            onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ""))}
-          />
-        </label>
+      <OrderTicket symbol={selected} />
+    </div>
+  );
+}
+
+function TicketHead({ symbol }: { symbol: string }) {
+  const inst = BY_SYMBOL[symbol]!;
+  const last = useDesk((s) => s.quotes[symbol]?.last);
+  const prev = useDesk((s) => s.quotes[symbol]?.prevClose);
+  if (last == null || prev == null) return null;
+  const chg = (last - prev) / prev;
+  return (
+    <>
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs text-muted-foreground">槓桿（最高 {inst.maxLeverage}x）</p>
-          <div className="mt-1 flex gap-1">
-            {[1, 2, 5, 10].filter((x) => x <= inst.maxLeverage).map((x) => (
+          <p className="font-mono text-sm text-muted-foreground">{inst.symbol}</p>
+          <h2 className="text-xl font-medium tracking-tight">{inst.name}</h2>
+        </div>
+        <Badge variant={inst.kind === "index" ? "outline" : "default"}>
+          {inst.kind === "index" ? "指數差價 · 每點 HK$1" : inst.kind === "etf" ? "ETF" : "正股 · 支援碎股"}
+        </Badge>
+      </div>
+      <div className="mt-3 flex items-end gap-4">
+        <p className="font-mono text-3xl tabular-nums tracking-tight">{formatPrice(last)}</p>
+        <Signed n={chg}>
+          <span className="text-sm">{formatPct(chg)}</span>
+        </Signed>
+      </div>
+    </>
+  );
+}
+
+function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
+  const live = useDesk((s) => s.quotes[symbol]?.last);
+  const barT = useDesk((s) => s.candles[symbol]?.[tf]?.at(-1)?.t ?? 0);
+  const len = useDesk((s) => s.candles[symbol]?.[tf]?.length ?? 0);
+  const lastVol = useDesk((s) => s.candles[symbol]?.[tf]?.at(-1)?.v ?? 0);
+  const pos = useDesk((s) => s.positions.find((p) => p.symbol === symbol) ?? null);
+  const bid = useDesk((s) => s.quotes[symbol]?.bid);
+  const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  const advice = useMemo(() => {
+    const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
+    return advise(series, live);
+  }, [symbol, tf, barT, len, live, lastVol]);
+
+  let posR: number | null = null;
+  let posPnl: number | null = null;
+  if (pos && bid != null && ask != null) {
+    const inst = BY_SYMBOL[symbol]!;
+    const mtm = pos.qty > 0 ? bid : ask;
+    posPnl = (mtm - pos.avgPrice) * pos.qty * inst.pointValue;
+    if (advice.atr) {
+      const risk = Math.abs(pos.qty) * advice.atr * inst.pointValue;
+      posR = risk > 1e-9 ? posPnl / risk : null;
+    }
+  }
+
+  const longBetter =
+    advice.longRR != null && advice.shortRR != null && advice.longRR >= advice.shortRR;
+
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-border bg-card p-3">
+      <p className="text-[11px] tracking-wide text-muted-foreground">
+        實時盈虧比 · 技術提示 · 教學用途，非投資建議
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className={cn("rounded-md px-2.5 py-2", longBetter ? "bg-up-soft" : "bg-secondary")}>
+          <p className="text-[11px] text-muted-foreground">偏多盈虧比</p>
+          <p className={cn("font-mono text-lg tabular-nums", longBetter ? "text-up" : "text-foreground")}>
+            {advice.longRR != null ? `${advice.longRR.toFixed(1)} : 1` : "—"}
+          </p>
+          {advice.resist != null ? (
+            <p className="text-[11px] text-muted-foreground">目標 {formatPrice(advice.resist)}</p>
+          ) : null}
+        </div>
+        <div className={cn("rounded-md px-2.5 py-2", !longBetter ? "bg-down-soft" : "bg-secondary")}>
+          <p className="text-[11px] text-muted-foreground">偏空盈虧比</p>
+          <p className={cn("font-mono text-lg tabular-nums", !longBetter ? "text-down" : "text-foreground")}>
+            {advice.shortRR != null ? `${advice.shortRR.toFixed(1)} : 1` : "—"}
+          </p>
+          {advice.support != null ? (
+            <p className="text-[11px] text-muted-foreground">目標 {formatPrice(advice.support)}</p>
+          ) : null}
+        </div>
+      </div>
+      {pos && posPnl != null ? (
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[11px] text-muted-foreground">持倉盈虧額</p>
+          <p className="font-mono text-base tabular-nums" data-live-pnl-hint>
+            <Signed n={posPnl}>
+              {formatHkd(posPnl)}
+              {posR != null ? ` · ${posR >= 0 ? "+" : "−"}${Math.abs(posR).toFixed(1)}R` : ""}
+            </Signed>
+          </p>
+        </div>
+      ) : null}
+      {advice.hints.map((h) => (
+        <div key={h.title}>
+          <p
+            className={cn(
+              "text-sm font-medium",
+              h.bias === "up" ? "text-up" : h.bias === "down" ? "text-down" : "text-foreground",
+            )}
+          >
+            {h.title}
+          </p>
+          <p className="text-[12px] leading-relaxed text-muted-foreground">{h.body}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BidAsk({ symbol }: { symbol: string }) {
+  const bid = useDesk((s) => s.quotes[symbol]?.bid);
+  const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  if (bid == null || ask == null) return null;
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+      <div className="rounded-lg bg-down-soft px-3 py-2">
+        <p className="text-[11px] text-down">買入價 Bid（賣出成交）</p>
+        <p className="font-mono text-lg tabular-nums text-down">{formatPrice(bid)}</p>
+      </div>
+      <div className="rounded-lg bg-up-soft px-3 py-2">
+        <p className="text-[11px] text-up">賣出價 Ask（買入成交）</p>
+        <p className="font-mono text-lg tabular-nums text-up">{formatPrice(ask)}</p>
+      </div>
+    </div>
+  );
+}
+
+const QtyField = memo(function QtyField({
+  resetKey,
+  qtyRef,
+  onTyped,
+}: {
+  resetKey: string;
+  qtyRef: { current: string };
+  onTyped: (v: string) => void;
+}) {
+  const [qty, setQty] = useState("1");
+  useEffect(() => {
+    setQty("1");
+    qtyRef.current = "1";
+    onTyped("1");
+  }, [resetKey, qtyRef, onTyped]);
+  return (
+    <Input
+      className="mt-1"
+      inputMode="numeric"
+      value={qty}
+      autoComplete="off"
+      spellCheck={false}
+      onChange={(e) => {
+        const v = e.target.value.replace(/[^\d]/g, "");
+        setQty(v);
+        qtyRef.current = v;
+        onTyped(v);
+      }}
+    />
+  );
+});
+
+function OrderTicket({ symbol }: { symbol: string }) {
+  const inst = BY_SYMBOL[symbol]!;
+  const place = useDesk((s) => s.place);
+  const cash = useDesk((s) => s.cash);
+  const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  const bid = useDesk((s) => s.quotes[symbol]?.bid);
+  const qtyRef = useRef("1");
+  const [qtyView, setQtyView] = useState("1");
+  const [lev, setLev] = useState(1);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLev(1);
+    setErr(null);
+    qtyRef.current = "1";
+    setQtyView("1");
+  }, [symbol, inst.kind]);
+
+  if (ask == null || bid == null) return null;
+  const n = Math.max(0, Math.floor(Number(qtyView) || 0));
+  const levClamped = Math.min(lev, inst.maxLeverage);
+  const buyNotional = n * ask * inst.pointValue;
+  const sellNotional = n * bid * inst.pointValue;
+  const buyMargin = buyNotional / levClamped;
+
+  function submit(side: "buy" | "sell") {
+    const qty = Math.max(0, Math.floor(Number(qtyRef.current) || 0));
+    const msg = place(side, qty, levClamped);
+    setErr(msg);
+  }
+
+  return (
+    <div className="mt-4 grid gap-3">
+      <label className="text-xs text-muted-foreground">
+        數量{inst.kind === "index" ? "（口）" : "（股）"}
+        <QtyField resetKey={symbol} qtyRef={qtyRef} onTyped={setQtyView} />
+      </label>
+      <div>
+        <p className="text-xs text-muted-foreground">槓桿（最高 {inst.maxLeverage}x）</p>
+        <div className="mt-1 flex gap-1">
+          {[1, 2, 5, 10]
+            .filter((x) => x <= inst.maxLeverage)
+            .map((x) => (
               <button
                 key={x}
                 type="button"
                 onClick={() => setLev(x)}
                 className={cn(
                   "h-11 flex-1 rounded-md border text-sm",
-                  levClamped === x
-                    ? "border-primary bg-secondary"
-                    : "border-border text-muted-foreground",
+                  levClamped === x ? "border-primary bg-secondary" : "border-border text-muted-foreground",
                 )}
               >
                 {x}x
               </button>
             ))}
-          </div>
         </div>
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>買入保證金 {formatHkd(buyMargin)}</span>
-          <span>可用現金 {formatHkd(cash)}</span>
-        </div>
-        {err ? <p className="text-sm text-up">{err}</p> : null}
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="buy" onClick={() => submit("buy")}>
-            買入 @ {formatPrice(q.ask)}
-          </Button>
-          <Button variant="sell" onClick={() => submit("sell")}>
-            賣出 @ {formatPrice(q.bid)}
-          </Button>
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          賣出名義 {formatHkd(sellNotional)}
-          {levClamped > 1 ? ` · 保證金佔名義 1/${levClamped}` : ""}
-        </p>
       </div>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>買入保證金 {formatHkd(buyMargin)}</span>
+        <span>可用現金 {formatHkd(cash)}</span>
+      </div>
+      {err ? <p className="text-sm text-up">{err}</p> : null}
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="buy" onClick={() => submit("buy")}>
+          買入 @ {formatPrice(ask)}
+        </Button>
+        <Button variant="sell" onClick={() => submit("sell")}>
+          賣出 @ {formatPrice(bid)}
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        賣出名義 {formatHkd(sellNotional)}
+        {levClamped > 1 ? ` · 保證金佔名義 1/${levClamped}` : ""}
+      </p>
     </div>
   );
 }
 
 function Holdings() {
   const positions = useDesk((s) => s.positions);
-  const quotes = useDesk((s) => s.quotes);
-  const closeSymbol = useDesk((s) => s.closeSymbol);
-  const select = useDesk((s) => s.select);
 
   return (
     <div>
-      <h2 className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <TrendingUp className="size-4 text-muted-foreground" />
-        持倉
+      <h2 className="mb-2 flex items-center justify-between gap-2 text-sm font-medium">
+        <span className="flex items-center gap-2">
+          <TrendingUp className="size-4 text-muted-foreground" />
+          持倉
+        </span>
+        {positions.length > 0 ? <HoldingsTotalPnl /> : null}
       </h2>
       {positions.length === 0 ? (
         <p className="text-sm text-muted-foreground">空倉。本金 {formatHkd(STARTING_CASH, 0)}，目標 {formatHkd(GOAL_EQUITY, 0)}。</p>
       ) : (
         <ul className="space-y-2">
-          {positions.map((p) => {
-            const inst = BY_SYMBOL[p.symbol]!;
-            const q = quotes[p.symbol]!;
-            const val = positionValue(p, q);
-            const mtm = p.qty > 0 ? q.bid : q.ask;
-            const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
-            return (
-              <li
-                key={p.symbol}
-                className="rounded-lg border border-border bg-card p-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <button type="button" className="text-left" onClick={() => select(p.symbol)}>
-                    <p className="text-sm">
-                      {inst.name}{" "}
-                      <span className="font-mono text-muted-foreground">{p.symbol}</span>
-                    </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {p.qty > 0 ? "好倉" : "淡倉"} {formatQty(Math.abs(p.qty))} · 均價 {formatPrice(p.avgPrice)}
-                      {p.leverage > 1 ? ` · ${p.leverage}x` : ""}
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    className="size-11 text-muted-foreground hover:text-foreground"
-                    onClick={() => closeSymbol(p.symbol)}
-                    aria-label={`平倉 ${inst.name}`}
-                  >
-                    <X className="mx-auto size-4" />
-                  </button>
-                </div>
-                <div className="mt-1 flex justify-between text-sm">
-                  <span className="font-mono tabular-nums text-muted-foreground">{formatHkd(val)}</span>
-                  <Signed n={pnl}>{formatHkd(pnl)}</Signed>
-                </div>
-              </li>
-            );
-          })}
+          {positions.map((p) => (
+            <HoldingRow
+              key={p.symbol}
+              symbol={p.symbol}
+              qty={p.qty}
+              avgPrice={p.avgPrice}
+              leverage={p.leverage}
+            />
+          ))}
         </ul>
       )}
     </div>
   );
 }
+
+function HoldingsTotalPnl() {
+  const positions = useDesk((s) => s.positions);
+  const quotes = useDesk((s) => s.quotes);
+  const total = positions.reduce((sum, p) => {
+    const q = quotes[p.symbol];
+    if (!q) return sum;
+    const inst = BY_SYMBOL[p.symbol]!;
+    const mtm = p.qty > 0 ? q.bid : q.ask;
+    return sum + (mtm - p.avgPrice) * p.qty * inst.pointValue;
+  }, 0);
+  return (
+    <Signed n={total}>
+      <span className="font-mono text-sm tabular-nums" data-live-pnl-total>
+        {formatHkd(total)}
+      </span>
+    </Signed>
+  );
+}
+
+const HoldingRow = memo(function HoldingRow({
+  symbol,
+  qty,
+  avgPrice,
+  leverage,
+}: {
+  symbol: string;
+  qty: number;
+  avgPrice: number;
+  leverage: number;
+}) {
+  const bid = useDesk((s) => s.quotes[symbol]?.bid);
+  const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  const closeSymbol = useDesk((s) => s.closeSymbol);
+  const select = useDesk((s) => s.select);
+  const inst = BY_SYMBOL[symbol];
+  if (!inst || bid == null || ask == null) return null;
+  const mtm = qty > 0 ? bid : ask;
+  const pnl = (mtm - avgPrice) * qty * inst.pointValue;
+  const margin = (Math.abs(qty) * avgPrice * inst.pointValue) / leverage;
+  const val = margin + pnl;
+  const pct = avgPrice ? ((mtm - avgPrice) / avgPrice) * (qty > 0 ? 1 : -1) : 0;
+
+  return (
+    <li className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" className="text-left" onClick={() => select(symbol)}>
+          <p className="text-sm">
+            {inst.name}{" "}
+            <span className="font-mono text-muted-foreground">{symbol}</span>
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            {qty > 0 ? "好倉" : "淡倉"} {formatQty(Math.abs(qty))} · 均價 {formatPrice(avgPrice)}
+            {leverage > 1 ? ` · ${leverage}x` : ""} · 市價 {formatPrice(mtm)}
+          </p>
+        </button>
+        <button
+          type="button"
+          className="size-11 text-muted-foreground hover:text-foreground"
+          onClick={() => closeSymbol(symbol)}
+          aria-label={`平倉 ${inst.name}`}
+        >
+          <X className="mx-auto size-4" />
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div>
+          <p className="text-[11px] text-muted-foreground">盈虧額</p>
+          <p className="font-mono text-lg tabular-nums tracking-tight" data-live-pnl={symbol}>
+            <Signed n={pnl}>{formatHkd(pnl)}</Signed>
+          </p>
+          <p className="text-[11px]">
+            <Signed n={pct}>{formatPct(pct)}</Signed>
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] text-muted-foreground">持倉市值</p>
+          <p className="font-mono text-sm tabular-nums text-muted-foreground">{formatHkd(val)}</p>
+        </div>
+      </div>
+    </li>
+  );
+});

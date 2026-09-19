@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import {
   GOAL_EQUITY,
   STARTING_CASH,
   UNIVERSE,
   BY_SYMBOL,
 } from "./market/universe";
+import { hkParts } from "./format";
 import {
   applyTickCandles,
   ensureCandles,
@@ -14,11 +15,14 @@ import {
 } from "./market/candles";
 import {
   advanceClock,
+  hkDayKey,
   isSession,
   nextMarketOpen,
   rollDay,
+  rollExtremeEvent,
   seedQuotes,
   stepMarket,
+  type ExtremeSchedule,
   type NewsItem,
   type Quote,
 } from "./market/engine";
@@ -59,6 +63,7 @@ type DeskState = {
   busted: boolean;
   toast: string | null;
   musicOn: boolean;
+  extreme: ExtremeSchedule | null;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -108,6 +113,7 @@ function initial() {
     busted: false,
     toast: null as string | null,
     musicOn: false,
+    extreme: null as ExtremeSchedule | null,
   };
 }
 
@@ -134,6 +140,23 @@ export function equityOf(cash: number, positions: Position[], quotes: Record<str
   return cash + positions.reduce((s, p) => s + positionValue(p, quotes[p.symbol]!), 0);
 }
 
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const persistBuffer = { name: "", value: "" };
+function flushPersist() {
+  if (!persistBuffer.name) return;
+  try {
+    localStorage.setItem(persistBuffer.name, persistBuffer.value);
+  } catch {
+    /* quota */
+  }
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushPersist);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushPersist();
+  });
+}
+
 export const useDesk = create<DeskState>()(
   persist(
     (set, get) => ({
@@ -156,43 +179,45 @@ export const useDesk = create<DeskState>()(
         const st = get();
         if (st.won || st.busted || st.speed === 0) return;
         let clock = advanceClock(st.clock, 1);
-        let quotes = mergeQuotes(st.quotes);
-        const hk = (() => {
-          const d = new Date(clock);
-          return new Intl.DateTimeFormat("en-US", {
-            timeZone: "Asia/Hong_Kong",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).formatToParts(d);
-        })();
-        const hour = Number(hk.find((x) => x.type === "hour")?.value);
-        const minute = Number(hk.find((x) => x.type === "minute")?.value);
-        if (hour === 9 && minute === 30) {
+        if (!isSession(clock)) clock = nextMarketOpen(clock);
+        const p = hkParts(clock);
+        let quotes = st.quotes;
+        if (p.hour === 9 && p.minute === 30) {
           quotes = rollDay(quotes);
         }
-        if (!isSession(clock)) clock = nextMarketOpen(clock);
-        const stepped = stepMarket(quotes, st.histories, clock);
+        const dayKey = hkDayKey(clock);
+        let extreme = st.extreme ?? null;
+        if (!extreme || extreme.dayKey !== dayKey) {
+          extreme = rollExtremeEvent(clock);
+        }
+        const stepped = stepMarket(quotes, st.histories, clock, extreme);
+        if (stepped.extremeFired && extreme.event) {
+          extreme = { ...extreme, event: { ...extreme.event, fired: true } };
+        }
         let cash = st.cash;
-        let positions = st.positions.map((p) => ({ ...p }));
+        let positions = st.positions;
         const liquidated: string[] = [];
-        positions = positions.filter((p) => {
-          const q = stepped.quotes[p.symbol]!;
-          const inst = BY_SYMBOL[p.symbol]!;
-          const mtm = markPrice(q, p.qty);
-          const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
-          const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
-          if (p.leverage > 1 && pnl <= -margin * 0.8) {
-            cash += Math.max(0, margin + pnl);
-            liquidated.push(p.symbol);
-            return false;
-          }
-          return true;
-        });
+        if (positions.length) {
+          const kept = positions.filter((p) => {
+            const q = stepped.quotes[p.symbol]!;
+            const inst = BY_SYMBOL[p.symbol]!;
+            const mtm = markPrice(q, p.qty);
+            const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
+            const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
+            if (p.leverage > 1 && pnl <= -margin * 0.8) {
+              cash += Math.max(0, margin + pnl);
+              liquidated.push(p.symbol);
+              return false;
+            }
+            return true;
+          });
+          if (liquidated.length) positions = kept;
+        }
         const eq = equityOf(cash, positions, stepped.quotes);
         const news = stepped.news
           ? [stepped.news, ...st.news].slice(0, 24)
           : st.news;
+        const extremeToast = stepped.news?.extreme ? stepped.news.text : null;
         set({
           clock,
           quotes: stepped.quotes,
@@ -201,11 +226,12 @@ export const useDesk = create<DeskState>()(
           cash,
           positions,
           news,
+          extreme,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast: liquidated.length
             ? `${liquidated.map((s) => BY_SYMBOL[s]?.name ?? s).join("、")} 已強制平倉`
-            : st.toast,
+            : extremeToast ?? st.toast,
         });
       },
       place: (side, qty, leverage) => {
@@ -330,8 +356,34 @@ export const useDesk = create<DeskState>()(
         selected: s.selected,
         won: s.won,
         busted: s.busted,
+        extreme: s.extreme,
         speed: 0 as Speed,
       }),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => {
+          try {
+            return localStorage.getItem(name);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          persistBuffer.name = name;
+          persistBuffer.value = value;
+          if (persistTimer != null) return;
+          persistTimer = setTimeout(() => {
+            persistTimer = null;
+            flushPersist();
+          }, 2000);
+        },
+        removeItem: (name) => {
+          try {
+            localStorage.removeItem(name);
+          } catch {
+            /* ignore */
+          }
+        },
+      })),
     },
   ),
 );
