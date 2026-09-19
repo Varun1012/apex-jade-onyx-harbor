@@ -30,5 +30,8 @@ jobs:
           grep -q "暴升" app.js
           grep -q "data-pos-pnl" app.js
           grep -q "paintPositions" app.js
+          grep -q "mergeQuotes" app.js
+          grep -q "settleClose" app.js
+          grep -q "quotes: compactQuotes" app.js
           node --check app.js
           echo "checks passed"

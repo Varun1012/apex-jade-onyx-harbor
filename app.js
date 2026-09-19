@@ -409,8 +409,28 @@
     };
   }
 
+  function mergeQuotes(saved) {
+    const seeded = seedQuotes();
+    if (!saved || typeof saved !== "object") return seeded;
+    const out = { ...seeded };
+    for (const i of UNIVERSE) {
+      const q = saved[i.s];
+      if (!q || typeof q.last !== "number" || !(q.last > 0)) continue;
+      const last = q.last;
+      out[i.s] = {
+        last,
+        bid: typeof q.bid === "number" ? q.bid : last,
+        ask: typeof q.ask === "number" ? q.ask : last,
+        prev: typeof q.prev === "number" && q.prev > 0 ? q.prev : last,
+        o: typeof q.o === "number" ? q.o : last,
+        h: typeof q.h === "number" ? q.h : last,
+        l: typeof q.l === "number" ? q.l : last,
+      };
+    }
+    return out;
+  }
+
   const state = fresh();
-  state.candles = seedCandles(state.quotes, state.clock);
 
   try {
     const raw = localStorage.getItem(SAVE);
@@ -430,65 +450,78 @@
           busted: !!s.busted,
           clock: s.clock || state.clock,
           extreme: s.extreme || null,
+          quotes: mergeQuotes(s.quotes),
         });
-        state.candles = seedCandles(state.quotes, state.clock);
+        if (typeof s.news === "string" && s.news) state.news = s.news;
       }
     }
   } catch (_) {}
+  state.candles = seedCandles(state.quotes, state.clock);
 
+  function compactQuotes(quotes) {
+    const out = {};
+    for (const i of UNIVERSE) {
+      const q = quotes[i.s];
+      if (!q) continue;
+      out[i.s] = { last: q.last, bid: q.bid, ask: q.ask, prev: q.prev, o: q.o, h: q.h, l: q.l };
+    }
+    return out;
+  }
+  function snapshot() {
+    return {
+      cash: state.cash,
+      pos: state.pos,
+      fills: state.fills.slice(0, 40),
+      sel: state.sel,
+      speed: state.speed,
+      tf: state.tf,
+      qty: state.qty,
+      lev: state.lev,
+      won: state.won,
+      busted: state.busted,
+      clock: state.clock,
+      extreme: state.extreme,
+      quotes: compactQuotes(state.quotes),
+      news: state.news,
+    };
+  }
   let persistTimer = null;
+  function persistNow() {
+    if (persistTimer != null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    try {
+      localStorage.setItem(SAVE, JSON.stringify(snapshot()));
+    } catch (_) {}
+  }
   function persist() {
     if (persistTimer != null) return;
     persistTimer = setTimeout(() => {
       persistTimer = null;
-      try {
-        localStorage.setItem(
-          SAVE,
-          JSON.stringify({
-            cash: state.cash,
-            pos: state.pos,
-            fills: state.fills.slice(0, 40),
-            sel: state.sel,
-            speed: state.speed,
-            tf: state.tf,
-            qty: state.qty,
-            lev: state.lev,
-            won: state.won,
-            busted: state.busted,
-            clock: state.clock,
-            extreme: state.extreme,
-          })
-        );
-      } catch (_) {}
+      persistNow();
     }, 2000);
   }
-  if (typeof document !== "undefined") {
+  function settleClose() {
+    for (const i of UNIVERSE) {
+      const q = state.quotes[i.s];
+      q.prev = q.last;
+      q.o = q.last;
+      q.h = q.last;
+      q.l = q.last;
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", () => {
+      settleClose();
+      persistNow();
+    });
+    window.addEventListener("beforeunload", () => {
+      settleClose();
+      persistNow();
+    });
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") {
-        if (persistTimer) {
-          clearTimeout(persistTimer);
-          persistTimer = null;
-        }
-        try {
-          localStorage.setItem(
-            SAVE,
-            JSON.stringify({
-              cash: state.cash,
-              pos: state.pos,
-              fills: state.fills.slice(0, 40),
-              sel: state.sel,
-              speed: state.speed,
-              tf: state.tf,
-              qty: state.qty,
-              lev: state.lev,
-              won: state.won,
-              busted: state.busted,
-              clock: state.clock,
-              extreme: state.extreme,
-            })
-          );
-        } catch (_) {}
-      }
+      if (document.visibilityState === "hidden") persistNow();
     });
   }
 
@@ -806,7 +839,7 @@
     Object.assign(state, fresh());
     state.candles = seedCandles(state.quotes, state.clock);
     state.music = keepMusic;
-    persist();
+    persistNow();
     render();
   }
 
@@ -873,6 +906,8 @@
       selChg.textContent = fmtPct(chg);
       selChg.className = chg >= 0 ? "up" : "down";
     }
+    const selPrev = document.getElementById("sel-prev");
+    if (selPrev) selPrev.textContent = "收市 " + fmtP(q.prev);
     const cnv = document.getElementById("kline");
     if (cnv) scheduleChart();
     const cap = document.getElementById("k-cap");
@@ -1026,7 +1061,7 @@
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。</p>
+        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。離開再開，收市價跟你上次最後成交價。</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" autocomplete="off" />
@@ -1042,6 +1077,7 @@
           <div class="muted mono">${inst.s} · 每手 ${inst.lot}</div>
           <h2>${inst.n}</h2>
           <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
+          <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}</p>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
