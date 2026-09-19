@@ -4,7 +4,7 @@
 
 **Play here:** https://varun1012.github.io/apex-jade-onyx-harbor/
 
-Hong Kong paper-trading desk. Start with **HK$10,000**. Reach **HK$100,000,000** for 財富自由.
+Hong Kong paper-trading desk. Session **Mon–Fri 09:30–12:00, 13:00–16:00 HKT**. Start with **HK$10,000**. Reach **HK$100,000,000** for 財富自由.
 
 ## How to play
 

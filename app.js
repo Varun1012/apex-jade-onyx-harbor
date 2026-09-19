@@ -49,6 +49,61 @@
     "監管傳聞發酵，短線資金恐慌出逃。",
     "流動性突然枯竭，股價無量暴跌。"
   ];
+
+  function hkParts(ms) {
+    const map = {};
+    for (const part of new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Hong_Kong", weekday: "short", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date(ms))) {
+      if (part.type !== "literal") map[part.type] = part.value;
+    }
+    const weekday = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[map.weekday] ?? 1;
+    return { year: +map.year, month: +map.month, day: +map.day, hour: +map.hour, minute: +map.minute, weekday };
+  }
+  function hkDate(y, m, d, h, min) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return Date.parse(`${y}-${pad(m)}-${pad(d)}T${pad(h)}:${pad(min)}:00+08:00`);
+  }
+  function isSession(ms) {
+    const p = hkParts(ms);
+    if (p.weekday === 0 || p.weekday === 6) return false;
+    const mins = p.hour * 60 + p.minute;
+    return (mins >= 9 * 60 + 30 && mins < 12 * 60) || (mins >= 13 * 60 && mins < 16 * 60);
+  }
+  function nextOpen(from) {
+    const p = hkParts(from);
+    const mins = p.hour * 60 + p.minute;
+    if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30) return hkDate(p.year, p.month, p.day, 9, 30);
+    let ts = hkDate(p.year, p.month, p.day, 9, 30) + 86400000;
+    for (let i = 0; i < 8; i++) {
+      const q = hkParts(ts);
+      if (q.weekday >= 1 && q.weekday <= 5) return hkDate(q.year, q.month, q.day, 9, 30);
+      ts += 86400000;
+    }
+    return ts;
+  }
+  function advanceClock(ms, minutes) {
+    let cur = ms, left = minutes;
+    while (left > 0) {
+      cur += 60000;
+      const p = hkParts(cur);
+      const mins = p.hour * 60 + p.minute;
+      if (mins === 12 * 60) cur = hkDate(p.year, p.month, p.day, 13, 0);
+      else if (mins >= 16 * 60 || p.weekday === 0 || p.weekday === 6) cur = nextOpen(cur);
+      left -= 1;
+    }
+    return cur;
+  }
+  function bucketStart(clock, tf) {
+    const p = hkParts(clock);
+    if (tf === "1d") return hkDate(p.year, p.month, p.day, 9, 30);
+    const step = tf === "5m" ? 5 : 15;
+    const mins = p.hour * 60 + p.minute;
+    const snapped = Math.floor(mins / step) * step;
+    return hkDate(p.year, p.month, p.day, Math.floor(snapped / 60), snapped % 60);
+  }
+
   function dayKey(ms) {
     return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
   }
@@ -335,20 +390,36 @@
     const book = state.candles[sym];
     for (const tf of ["5m", "15m", "1d"]) {
       const arr = book[tf];
+      const cap = tf === "5m" ? 220 : tf === "15m" ? 140 : 90;
+      const t = bucketStart(state.clock, tf);
       const c = arr.at(-1);
-      if (c) {
+      if (c && c.t === t) {
         c.c = last;
         c.h = Math.max(c.h, last);
         c.l = Math.min(c.l, last);
+      } else {
+        const o = c ? c.c : last;
+        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last });
+        if (arr.length > cap) arr.shift();
       }
-      const every = tf === "5m" ? 5 : tf === "15m" ? 15 : 240;
-      if (arr.length && arr.length % every === 0) arr.push({ o: last, h: last, l: last, c: last });
-      if (arr.length > 96) arr.shift();
+    }
+  }
+  function rollQuotesDay() {
+    for (const i of UNIVERSE) {
+      const q = state.quotes[i.s];
+      q.prev = q.last;
+      q.o = q.last;
+      q.h = q.last;
+      q.l = q.last;
     }
   }
 
   function step() {
     if (!state.speed || state.won || state.busted) return;
+    state.clock = advanceClock(state.clock, 1);
+    const hp = hkParts(state.clock);
+    if (hp.hour === 9 && hp.minute === 30) rollQuotesDay();
+    if (!isSession(state.clock)) state.clock = nextOpen(state.clock);
     const shock = gauss() * 0.0018;
     let newsBias = 0;
     let newsFocus = null;
@@ -399,8 +470,7 @@
     eq.bid = rnd(etf - 0.01, BY["2800"]);
     eq.ask = rnd(etf + 0.01, BY["2800"]);
     pushC("2800", etf);
-    state.clock += 60000 * state.speed;
-    const eqy = equity();
+        const eqy = equity();
     if (eqy >= GOAL) {
       state.won = true;
       state.speed = 0;
@@ -410,7 +480,8 @@
       state.speed = 0;
     }
     persist();
-    render();
+    if (state.won || state.busted) render();
+    else paintLive();
   }
 
   function place(side) {
@@ -543,6 +614,84 @@
     render();
   }
 
+
+  function paintLive() {
+    const clockEl = document.getElementById("sim-clock");
+    if (!clockEl) {
+      render();
+      return;
+    }
+    clockEl.textContent = fmtTime(state.clock);
+    const hsi = state.quotes.HSI;
+    const hsich = (hsi.last - hsi.prev) / hsi.prev;
+    const hsiLast = document.getElementById("hsi-last");
+    if (hsiLast) hsiLast.textContent = hsi.last.toLocaleString("en-HK");
+    const hsiChg = document.getElementById("hsi-chg");
+    if (hsiChg) {
+      hsiChg.textContent = fmtPct(hsich);
+      hsiChg.className = hsich >= 0 ? "up" : "down";
+    }
+    const cashEl = document.getElementById("cash-v");
+    if (cashEl) cashEl.textContent = fmtH(state.cash);
+    const eq = equity(), pnl = eq - START;
+    const eqEl = document.getElementById("eq-v");
+    if (eqEl) eqEl.textContent = fmtH(eq);
+    const pnlEl = document.getElementById("eq-pnl");
+    if (pnlEl) {
+      pnlEl.textContent = fmtH(pnl);
+      pnlEl.className = pnl >= 0 ? "up" : "down";
+    }
+    const newsBar = document.getElementById("news-bar");
+    if (newsBar) {
+      const surge = state.news.includes("暴升");
+      const crash = state.news.includes("暴跌");
+      newsBar.className = "news " + (surge ? "surge" : crash ? "crash" : "");
+      const k = document.getElementById("news-k");
+      const span = document.getElementById("news-t");
+      if (k) k.textContent = surge ? "暴升" : crash ? "暴跌" : "NEWS";
+      if (span) span.textContent = state.news;
+    }
+    document.querySelectorAll("#list [data-s]").forEach((row) => {
+      const s = row.dataset.s;
+      const qq = state.quotes[s];
+      const inst = BY[s];
+      const c = (qq.last - qq.prev) / qq.prev;
+      const gap = Math.abs(c) >= 0.3;
+      const px = row.querySelector(".px");
+      if (px) {
+        px.className = "mono px " + (c >= 0 ? "up" : "down");
+        px.innerHTML = fmtP(qq.last) + "<br><small>" + fmtPct(c) + "</small>";
+      }
+      const name = row.querySelector(".name");
+      if (name) name.textContent = inst.n + (gap ? (c > 0 ? " · 暴升" : " · 暴跌") : "");
+      row.classList.toggle("gap-up", gap && c > 0);
+      row.classList.toggle("gap-down", gap && c < 0);
+      row.classList.toggle("active", state.sel === s);
+    });
+    const inst = BY[state.sel], q = state.quotes[state.sel];
+    const chg = (q.last - q.prev) / q.prev;
+    const selLast = document.getElementById("sel-last");
+    if (selLast) selLast.textContent = fmtP(q.last);
+    const selChg = document.getElementById("sel-chg");
+    if (selChg) {
+      selChg.textContent = fmtPct(chg);
+      selChg.className = chg >= 0 ? "up" : "down";
+    }
+    const cnv = document.getElementById("kline");
+    if (cnv) drawChart(cnv, state.candles[state.sel][state.tf]);
+  }
+  let tickerTimer = null;
+  function armTicker() {
+    if (tickerTimer) {
+      clearInterval(tickerTimer);
+      tickerTimer = null;
+    }
+    if (!state.speed) return;
+    tickerTimer = setInterval(() => {
+      if (state.speed) step();
+    }, Math.max(80, 900 / state.speed));
+  }
+
   function render() {
     const inst = BY[state.sel], q = state.quotes[state.sel], eq = equity(), pnl = eq - START, hsi = state.quotes.HSI;
     const hsich = (hsi.last - hsi.prev) / hsi.prev;
@@ -550,11 +699,7 @@
     const series = state.candles[state.sel][state.tf];
     const hs = hints(series);
     const progress = Math.min(100, (eq / GOAL) * 100);
-    const list = UNIVERSE.filter((i) => {
-      const n = state.filter.trim();
-      if (!n) return true;
-      return i.s.includes(n) || i.n.includes(n);
-    });
+    const n = state.filter.trim();
     const $ = document.getElementById("app");
     $.innerHTML = `
       <header class="top">
@@ -570,29 +715,30 @@
           </div>
         </div>
         <div class="stats">
-          <div class="stat"><label>模擬時間（香港）</label><div class="v mono">${esc(fmtTime(state.clock))}</div></div>
-          <div class="stat"><label>恒生指數</label><div class="v mono">${hsi.last.toLocaleString("en-HK")}</div><small class="${hsich >= 0 ? "up" : "down"}">${fmtPct(hsich)}</small></div>
-          <div class="stat"><label>現金</label><div class="v mono">${fmtH(state.cash)}</div></div>
-          <div class="stat"><label>總資產</label><div class="v mono">${fmtH(eq)}</div><small class="${pnl >= 0 ? "up" : "down"}">${fmtH(pnl)}</small></div>
+          <div class="stat"><label>模擬時間（香港）</label><div class="v mono" id="sim-clock">${esc(fmtTime(state.clock))}</div></div>
+          <div class="stat"><label>恒生指數</label><div class="v mono" id="hsi-last">${hsi.last.toLocaleString("en-HK")}</div><small id="hsi-chg" class="${hsich >= 0 ? "up" : "down"}">${fmtPct(hsich)}</small></div>
+          <div class="stat"><label>現金</label><div class="v mono" id="cash-v">${fmtH(state.cash)}</div></div>
+          <div class="stat"><label>總資產</label><div class="v mono" id="eq-v">${fmtH(eq)}</div><small id="eq-pnl" class="${pnl >= 0 ? "up" : "down"}">${fmtH(pnl)}</small></div>
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
         </div>
       </header>
-      <div class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b>${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span>${esc(state.news)}</span></div>
-        <p class="rule">每日或有個別股份突然暴升／暴跌逾三成；基本面穩健者幾乎不會。</p>
+      <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
+        <p class="rule">交易時段：星期一至五 09:30–12:00、13:00–16:00。每日或有個別股份突然暴升／暴跌逾三成；基本面穩健者幾乎不會。</p>
       <main class="desk">
         <section class="col">
-          <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" />
-          <div class="list" id="list">${list.map((i) => {
+          <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" autocomplete="off" />
+          <div class="list" id="list">${UNIVERSE.map((i) => {
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
             const gap = Math.abs(c) >= 0.3;
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${gap ? (c > 0 ? "gap-up" : "gap-down") : ""}" data-s="${i.s}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${gap ? (c > 0 ? " · 暴升" : " · 暴跌") : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last)}<br><small>${fmtPct(c)}</small></span></button>`;
+            const hide = n && !i.s.includes(n) && !i.n.includes(n);
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${gap ? (c > 0 ? "gap-up" : "gap-down") : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${gap ? (c > 0 ? " · 暴升" : " · 暴跌") : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last)}<br><small>${fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
           <div class="muted mono">${inst.s} · 每手 ${inst.lot}</div>
           <h2>${inst.n}</h2>
-          <div class="price-line"><span class="last mono">${fmtP(q.last)}</span><span class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
+          <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
           <div class="hints">
@@ -645,6 +791,7 @@
         state.speed = +b.dataset.speed;
         persist();
         render();
+        armTicker();
       };
     });
     $.querySelectorAll("[data-tf]").forEach((b) => {
@@ -690,20 +837,16 @@
     if (search) {
       search.oninput = (e) => {
         state.filter = e.target.value;
-        render();
-        const el = document.getElementById("q");
-        if (el) {
-          el.focus();
-          el.setSelectionRange(el.value.length, el.value.length);
-        }
+        const n = state.filter.trim();
+        document.querySelectorAll("#list [data-s]").forEach((row) => {
+          const inst = BY[row.dataset.s];
+          const show = !n || inst.s.includes(n) || inst.n.includes(n);
+          row.style.display = show ? "" : "none";
+        });
       };
     }
   }
 
   render();
-  setInterval(() => {
-    if (state.speed) {
-      for (let i = 0; i < Math.max(1, Math.min(state.speed, 4)); i++) step();
-    }
-  }, 900);
+  armTicker();
 })();
