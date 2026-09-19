@@ -26,5 +26,7 @@ jobs:
           grep -q "0434" app.js
           grep -q "3988" app.js
           grep -q "market-ticker.mp3" app.js
+          grep -q "rollExtreme" app.js
+          grep -q "暴升" app.js
           node --check app.js
           echo "checks passed"

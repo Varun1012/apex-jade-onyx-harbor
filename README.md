@@ -13,6 +13,7 @@ Hong Kong paper-trading desk. Start with **HK$10,000**. Reach **HK$100,000,000**
 - Buy at **Ask**, sell at **Bid** (港股紅升綠跌)
 - Candles: 5m / 15m / daily, with SMA, RSI, and pattern hints
 - **Market Ticker** soundtrack (replaces lo-fi). Tap **行情** once — browsers block autoplay.
+- Individual names may **surge or crash more than 30%** on a random day; solid-fundamental stocks almost never do.
 - Progress saves in this browser
 
 Teaching simulation only — not live quotes or investment advice.

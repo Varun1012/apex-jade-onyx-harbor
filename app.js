@@ -30,6 +30,51 @@
     { s: "9888", n: "百度集團", start: 91.2, vol: 0.022, beta: 1.2, pv: 1, lev: 5, lot: 50 },
   ];
   const BY = Object.fromEntries(UNIVERSE.map((i) => [i.s, i]));
+
+  const FUND = {
+    HSI: 1, "2800": 1, "0005": 0.92, "0700": 0.76, "9988": 0.58, "3690": 0.42,
+    "1810": 0.46, "0941": 0.95, "1299": 0.9, "0388": 0.86, "2318": 0.78, "1211": 0.56,
+    "0434": 0.18, "3988": 0.93, "9618": 0.52, "9999": 0.64, "0001": 0.82, "0002": 0.96,
+    "0011": 0.94, "0175": 0.48, "2020": 0.7, "2382": 0.36, "1024": 0.32, "9961": 0.6, "9888": 0.5
+  };
+  const SURGE_WHY = [
+    "突然傳出被收購／重大合作，短線資金瘋狂追貨。",
+    "停牌後復牌裂口高開，市場交投極度活躍。",
+    "業績爆冷遠勝預期，買盤瞬間湧入。",
+    "傳出戰略投資者入股，股價突然暴升。"
+  ];
+  const CRASH_WHY = [
+    "突然傳出不利消息，沽盤湧現。",
+    "大股東減持／盈利警告，股價裂口低開。",
+    "監管傳聞發酵，短線資金恐慌出逃。",
+    "流動性突然枯竭，股價無量暴跌。"
+  ];
+  function dayKey(ms) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+  }
+  function rollExtreme(clock) {
+    const day = dayKey(clock);
+    if (Math.random() >= 0.34) return { day, event: null };
+    const pool = UNIVERSE.filter((i) => i.s !== "HSI" && i.s !== "2800");
+    const weights = pool.map((i) => Math.pow(Math.max(0.02, 1 - (FUND[i.s] ?? 0.5)), 3));
+    let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+    let inst = pool[0];
+    for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { inst = pool[i]; break; } }
+    const q = FUND[inst.s] ?? 0.5;
+    const sign = Math.random() < 0.48 ? 1 : -1;
+    const mag = 0.305 + Math.random() * (0.1 + (1 - q) * 0.4);
+    const slots = [];
+    for (let min of [10*60+5, 10*60+40, 11*60+12, 11*60+48, 13*60+20, 14*60+8, 14*60+55, 15*60+22]) {
+      const ts = Date.parse(`${day}T${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}:00+08:00`);
+      if (ts > clock) slots.push(ts);
+    }
+    if (!slots.length) return { day, event: null };
+    const fireAt = slots[Math.floor(Math.random() * slots.length)];
+    const why = (sign > 0 ? SURGE_WHY : CRASH_WHY)[Math.floor(Math.random() * 4)];
+    const verb = sign > 0 ? "暴升" : "暴跌";
+    const text = `${inst.n}（${inst.s}）${verb}逾 ${Math.round(mag * 100)}%。${why}`;
+    return { day, event: { s: inst.s, n: inst.n, sign, mag, fireAt, fired: false, text } };
+  }
   const NEWS = [
     { t: "北水持續淨流入，港股氣氛轉旺", b: 0.45 },
     { t: "聯儲局官員放鴿，資金重新追逐風險資產", b: 0.55 },
@@ -209,6 +254,7 @@
       clock: Date.parse("2026-09-14T01:30:00Z"),
       filter: "",
       toast: null,
+      extreme: null,
     };
   }
 
@@ -232,6 +278,7 @@
           won: !!s.won,
           busted: !!s.busted,
           clock: s.clock || state.clock,
+          extreme: s.extreme || null,
         });
       }
     }
@@ -253,6 +300,7 @@
           won: state.won,
           busted: state.busted,
           clock: state.clock,
+          extreme: state.extreme,
         })
       );
     } catch (_) {}
@@ -304,7 +352,11 @@
     const shock = gauss() * 0.0018;
     let newsBias = 0;
     let newsFocus = null;
-    if (Math.random() < 0.028) {
+    const dk = dayKey(state.clock);
+    if (!state.extreme || state.extreme.day !== dk) state.extreme = rollExtreme(state.clock);
+    const ev = state.extreme && state.extreme.event;
+    const due = ev && !ev.fired && state.clock >= ev.fireAt;
+    if (!due && Math.random() < 0.028) {
       const n = NEWS[Math.floor(Math.random() * NEWS.length)];
       state.news = n.t;
       newsBias = n.b * 0.004;
@@ -314,7 +366,15 @@
       if (i.s === "HSI" || i.s === "2800") continue;
       const q = state.quotes[i.s];
       const extra = newsFocus === i.s ? newsBias * 2.4 : newsBias * i.beta;
-      const raw = q.last * (1 + shock * i.beta + gauss() * i.vol * 0.18 + extra);
+      let raw;
+      if (due && i.s === ev.s) {
+        raw = q.last * (1 + ev.sign * ev.mag);
+        ev.fired = true;
+        state.news = ev.text;
+        toast(ev.text);
+      } else {
+        raw = q.last * (1 + shock * i.beta + gauss() * i.vol * 0.18 + extra);
+      }
       const last = rnd(raw, i);
       const t = tickSize(last);
       q.last = last;
@@ -517,14 +577,16 @@
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
         </div>
       </header>
-      <div class="news"><b>NEWS</b><span>${esc(state.news)}</span></div>
+      <div class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b>${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span>${esc(state.news)}</span></div>
+        <p class="rule">每日或有個別股份突然暴升／暴跌逾三成；基本面穩健者幾乎不會。</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" />
           <div class="list" id="list">${list.map((i) => {
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""}" data-s="${i.s}"><span class="mono sym">${i.s}</span><span class="name">${i.n}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last)}<br><small>${fmtPct(c)}</small></span></button>`;
+            const gap = Math.abs(c) >= 0.3;
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${gap ? (c > 0 ? "gap-up" : "gap-down") : ""}" data-s="${i.s}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${gap ? (c > 0 ? " · 暴升" : " · 暴跌") : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last)}<br><small>${fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">

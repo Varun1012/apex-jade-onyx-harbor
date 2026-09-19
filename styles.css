@@ -249,3 +249,10 @@ footer.site {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.news.surge { background: var(--up-soft); color: var(--up); border-bottom-color: #c4453c55; }
+.news.crash { background: var(--down-soft); color: var(--down); border-bottom-color: #2f8f6b55; }
+.news.surge b, .news.crash b { color: inherit; }
+.rule { margin: 0; padding: 6px 20px 8px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); }
+.row-item.gap-up { background: var(--up-soft); }
+.row-item.gap-down { background: var(--down-soft); }
