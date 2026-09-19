@@ -430,7 +430,71 @@
     return out;
   }
 
+  function compactCandles(book) {
+    const out = {};
+    for (const i of UNIVERSE) {
+      const b = book[i.s];
+      if (!b) continue;
+      const row = {};
+      for (const tf of ["5m", "15m", "1d"]) {
+        const arr = b[tf];
+        if (!arr || !arr.length) continue;
+        row[tf] = arr.map((c) => [c.t, c.o, c.h, c.l, c.c, c.v || 0]);
+      }
+      out[i.s] = row;
+    }
+    return out;
+  }
+  function parseCandle(row) {
+    if (Array.isArray(row) && row.length >= 5) {
+      const t = +row[0], o = +row[1], h = +row[2], l = +row[3], c = +row[4], v = +row[5] || 0;
+      if (![t, o, h, l, c].every(Number.isFinite)) return null;
+      return { t, o, h, l, c, v };
+    }
+    if (row && typeof row === "object" && Number.isFinite(row.c) && Number.isFinite(row.t)) {
+      return { t: +row.t, o: +row.o, h: +row.h, l: +row.l, c: +row.c, v: +row.v || 0 };
+    }
+    return null;
+  }
+  function expandCandles(saved, quotes, clock) {
+    const seeded = seedCandles(quotes, clock);
+    if (!saved || typeof saved !== "object") return seeded;
+    const book = {};
+    for (const i of UNIVERSE) {
+      const slot = saved[i.s];
+      if (!slot || typeof slot !== "object") {
+        book[i.s] = seeded[i.s];
+        continue;
+      }
+      book[i.s] = {};
+      for (const tf of ["5m", "15m", "1d"]) {
+        const rows = slot[tf];
+        const list = [];
+        if (Array.isArray(rows)) {
+          for (const row of rows) {
+            const c = parseCandle(row);
+            if (c) list.push(c);
+          }
+        }
+        book[i.s][tf] = list.length >= 2 ? list : seeded[i.s][tf];
+      }
+    }
+    for (const i of UNIVERSE) {
+      const last = quotes[i.s] && quotes[i.s].last;
+      if (!last) continue;
+      for (const tf of ["5m", "15m", "1d"]) {
+        const c = book[i.s][tf].at(-1);
+        if (!c) continue;
+        c.c = last;
+        c.h = Math.max(c.h, last);
+        c.l = Math.min(c.l, last);
+      }
+    }
+    return book;
+  }
+
   const state = fresh();
+  let savedCandles = null;
 
   try {
     const raw = localStorage.getItem(SAVE);
@@ -453,10 +517,11 @@
           quotes: mergeQuotes(s.quotes),
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
+        if (s.candles) savedCandles = s.candles;
       }
     }
   } catch (_) {}
-  state.candles = seedCandles(state.quotes, state.clock);
+  state.candles = expandCandles(savedCandles, state.quotes, state.clock);
 
   function compactQuotes(quotes) {
     const out = {};
@@ -482,6 +547,7 @@
       clock: state.clock,
       extreme: state.extreme,
       quotes: compactQuotes(state.quotes),
+      candles: compactCandles(state.candles),
       news: state.news,
     };
   }
@@ -491,8 +557,22 @@
       clearTimeout(persistTimer);
       persistTimer = null;
     }
+    const snap = snapshot();
     try {
-      localStorage.setItem(SAVE, JSON.stringify(snapshot()));
+      localStorage.setItem(SAVE, JSON.stringify(snap));
+      return;
+    } catch (_) {}
+    try {
+      const slim = { ...snap, candles: {} };
+      for (const s of Object.keys(snap.candles || {})) {
+        slim.candles[s] = { "15m": snap.candles[s]["15m"], "1d": snap.candles[s]["1d"] };
+      }
+      localStorage.setItem(SAVE, JSON.stringify(slim));
+      return;
+    } catch (_) {}
+    try {
+      const { candles, ...rest } = snap;
+      localStorage.setItem(SAVE, JSON.stringify(rest));
     } catch (_) {}
   }
   function persist() {
@@ -1061,7 +1141,7 @@
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。離開再開，收市價跟你上次最後成交價。</p>
+        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。離開再開，收市價同陰陽燭跟上次最後一盤，唔會重畫 K 線。</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" autocomplete="off" />
