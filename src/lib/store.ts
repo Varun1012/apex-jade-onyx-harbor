@@ -8,16 +8,22 @@ import {
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
+  declareDividend,
+  dividendNews,
   earningsGap,
   earningsNews,
+  exDivGap,
   haltNews,
   haltSet,
   isHalted,
   publishReport,
   resultsDueToday,
   rollHalt,
+  seedDividends,
   seedReports,
+  skipDividendNews,
   volBoostFor,
+  type Dividend,
   type Halt,
   type Report,
 } from "./market/corporate";
@@ -104,6 +110,7 @@ type DeskState = {
   halt: Halt | null;
   reports: Record<string, Report>;
   earnFired: Record<string, boolean>;
+  dividends: Record<string, Dividend>;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -175,6 +182,11 @@ function initial() {
     halt: null as Halt | null,
     reports: seedReports(clock),
     earnFired: {} as Record<string, boolean>,
+    dividends: seedDividends(
+      clock,
+      seedReports(clock),
+      Object.fromEntries(UNIVERSE.map((i) => [i.symbol, started.quotes[i.symbol]?.last ?? i.start])),
+    ),
   };
 }
 
@@ -322,6 +334,8 @@ function openTradingDay(
   halt: Halt | null,
   reports: Record<string, Report>,
   earnFired: Record<string, boolean>,
+  dividends: Record<string, Dividend>,
+  positions: Position[],
   extraNews: NewsItem[],
 ) {
   const dayKey = hkDayKey(clock);
@@ -333,6 +347,7 @@ function openTradingDay(
   const due = resultsDueToday(clock);
   const nextReports = { ...reports };
   const nextFired = { ...earnFired };
+  const nextDivs = { ...dividends };
   const gapAdj: Record<string, number> = {};
   for (const { inst, period } of due) {
     const key = `${inst.symbol}:${dayKey}`;
@@ -342,6 +357,43 @@ function openTradingDay(
     nextFired[key] = true;
     extraNews.push(earningsNews(inst, rep, clock));
     gapAdj[inst.symbol] = earningsGap(rep);
+    const last = quotes[inst.symbol]?.last ?? inst.start;
+    const main = period.includes("全年") || period.includes("中期");
+    if (rep.profit > 0) {
+      const div = declareDividend(inst, rep, clock, last);
+      if (div) {
+        nextDivs[inst.symbol] = div;
+        extraNews.push(dividendNews(inst, div, clock, "declare"));
+      } else if (main) {
+        extraNews.push(skipDividendNews(inst, period, clock));
+      }
+    } else if (main) {
+      extraNews.push(skipDividendNews(inst, period, clock));
+    }
+  }
+  for (const [sym, div] of Object.entries(nextDivs)) {
+    const inst = BY_SYMBOL[sym];
+    if (!inst) continue;
+    if (!div.exed && dayKey >= div.exKey) {
+      const last = quotes[sym]?.last ?? inst.start;
+      gapAdj[sym] = (gapAdj[sym] ?? 0) + exDivGap(div.dps, last);
+      nextDivs[sym] = { ...div, exed: true };
+      extraNews.push(dividendNews(inst, div, clock, "ex"));
+    }
+  }
+  let payout = 0;
+  const payNotes: string[] = [];
+  for (const [sym, div] of Object.entries(nextDivs)) {
+    const inst = BY_SYMBOL[sym];
+    if (!inst || div.paid || dayKey < div.payKey) continue;
+    nextDivs[sym] = { ...div, paid: true, exed: true };
+    const pos = positions.find((p) => p.symbol === sym);
+    if (pos) {
+      const amt = pos.qty * div.dps * inst.pointValue;
+      payout += amt;
+      payNotes.push(`${inst.name} ${amt >= 0 ? "+" : ""}${amt.toFixed(0)}`);
+    }
+    extraNews.push(dividendNews(inst, div, clock, "pay"));
   }
   if (halt && dayKey === halt.untilKey) {
     const sign = Math.random() < 0.5 ? 1 : -1;
@@ -364,6 +416,9 @@ function openTradingDay(
     halt: nextHalt,
     reports: nextReports,
     earnFired: nextFired,
+    dividends: nextDivs,
+    payout,
+    payToast: payNotes.length ? `派息入帳 ${payNotes.join("、")}` : null,
     ctx,
   };
 }
@@ -455,6 +510,14 @@ export const useDesk = create<DeskState>()(
         let halt = st.halt;
         let reports = st.reports && Object.keys(st.reports).length ? st.reports : seedReports(clock);
         let earnFired = st.earnFired ?? {};
+        let dividends =
+          st.dividends && Object.keys(st.dividends).length
+            ? st.dividends
+            : seedDividends(
+                clock,
+                reports,
+                Object.fromEntries(UNIVERSE.map((i) => [i.symbol, quotes[i.symbol]?.last ?? i.start])),
+              );
         const extraNews: NewsItem[] = [];
 
         if (auction.dayKey !== dayKey) {
@@ -464,13 +527,16 @@ export const useDesk = create<DeskState>()(
         let ctx = marketCtx(halt, dayKey);
 
         if (p.hour === 9 && p.minute === 0) {
-          const opened = openTradingDay(clock, quotes, halt, reports, earnFired, extraNews);
+          const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
           quotes = opened.quotes;
           auction = opened.auction;
           halt = opened.halt;
           reports = opened.reports;
           earnFired = opened.earnFired;
+          dividends = opened.dividends;
           ctx = opened.ctx;
+          if (opened.payout) cash += opened.payout;
+          if (opened.payToast) toast = opened.payToast;
         } else if (p.hour === 16 && p.minute === 0 && !auction.closeDone) {
           const started = beginAuctionSession(quotes, auction, "close", ctx);
           quotes = started.quotes;
@@ -504,13 +570,16 @@ export const useDesk = create<DeskState>()(
           }
           if (closeMatch) {
             clock = nextMarketOpen(clock);
-            const opened = openTradingDay(clock, quotes, halt, reports, earnFired, extraNews);
+            const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
             quotes = opened.quotes;
             auction = opened.auction;
             halt = opened.halt;
             reports = opened.reports;
             earnFired = opened.earnFired;
+            dividends = opened.dividends;
             ctx = opened.ctx;
+            if (opened.payout) cash += opened.payout;
+            if (opened.payToast) toast = opened.payToast;
           }
         } else if (isContinuous(clock)) {
           let extreme = st.extreme ?? null;
@@ -547,6 +616,7 @@ export const useDesk = create<DeskState>()(
             halt,
             reports,
             earnFired,
+            dividends,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
@@ -571,6 +641,7 @@ export const useDesk = create<DeskState>()(
           halt,
           reports,
           earnFired,
+          dividends,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -756,6 +827,7 @@ export const useDesk = create<DeskState>()(
         halt: s.halt,
         reports: s.reports,
         earnFired: s.earnFired,
+        dividends: s.dividends,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({

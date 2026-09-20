@@ -26,7 +26,7 @@ import {
   sessionPhase,
   usesHkAuction,
 } from "@/lib/market/engine";
-import { formatDayKey, formatYi, isHalted, nextResults } from "@/lib/market/corporate";
+import { formatDayKey, formatDps, formatYi, isHalted, nextResults } from "@/lib/market/corporate";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -706,6 +706,7 @@ function FinReport({ symbol }: { symbol: string }) {
   const clock = useDesk((s) => s.clock);
   const report = useDesk((s) => s.reports?.[symbol]);
   const halt = useDesk((s) => s.halt);
+  const div = useDesk((s) => s.dividends?.[symbol]);
   if (!inst || inst.kind !== "stock") return null;
   const next = nextResults(symbol, clock);
   const halted = isHalted(halt, symbol, hkDayKey(clock));
@@ -737,6 +738,21 @@ function FinReport({ symbol }: { symbol: string }) {
         </div>
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">尚無已公布業績。</p>
+      )}
+      {div && div.dps > 0 ? (
+        <div className="mt-2 rounded-md bg-secondary/70 px-2.5 py-2 text-sm" data-div>
+          <p>
+            派息 每股 {formatDps(div.dps)}
+            {div.paid ? " · 已派發" : div.exed ? " · 已除淨" : ""}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            除淨日 {formatDayKey(div.exKey)} · 派息日 {formatDayKey(div.payKey)}
+          </p>
+        </div>
+      ) : report && report.profit > 0 ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">有純利，本期尚未／不派息</p>
+      ) : (
+        <p className="mt-2 text-[11px] text-muted-foreground">無純利則不考慮派息</p>
       )}
       <p className="mt-2 text-[11px] text-muted-foreground">
         下次公布 {formatDayKey(next.dayKey)} · {next.period}

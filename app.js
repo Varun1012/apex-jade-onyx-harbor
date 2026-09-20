@@ -119,6 +119,57 @@
     }
     return out;
   }
+  const DIVY = {
+    "0005": 0.055, "3988": 0.062, "0011": 0.05, "0002": 0.046, "0941": 0.054, "0857": 0.058,
+    "0012": 0.052, "0001": 0.04, "2318": 0.044, "1299": 0.022, "0388": 0.028, "0700": 0.012,
+    "9988": 0.008, "3690": 0, "1810": 0, "1211": 0.012, "0434": 0.018, "0992": 0.03,
+    "9618": 0, "9999": 0.02, "0175": 0.01, "2020": 0.024, "2382": 0.012, "1024": 0, "9961": 0, "9888": 0
+  };
+  function fmtDps(n) {
+    return n >= 0.1 ? "HK$" + n.toFixed(2) : "HK$" + n.toFixed(3);
+  }
+  function roundDps(x) {
+    if (x >= 1) return Math.round(x * 20) / 20;
+    if (x >= 0.1) return Math.round(x * 100) / 100;
+    return Math.round(x * 1000) / 1000;
+  }
+  function portion(period) {
+    if (period.indexOf("全年") >= 0) return 0.62;
+    if (period.indexOf("中期") >= 0) return 0.38;
+    return 0.12;
+  }
+  function declareDiv(i, rep, clock, last, rand) {
+    if (rep.profit <= 0) return null;
+    const q = FUND[i.s] ?? 0.5;
+    const r = rand == null ? Math.random() : rand;
+    const main = rep.period.indexOf("全年") >= 0 || rep.period.indexOf("中期") >= 0;
+    if (main) {
+      if (r >= 0.28 + q * 0.7) return null;
+    } else if (r >= 0.06 + q * 0.08) return null;
+    const yld = DIVY[i.s] ?? Math.max(0, 0.008 + q * 0.025);
+    if (yld <= 0 && portion(rep.period) < 0.2) return null;
+    const dps = roundDps(last * Math.max(yld, 0.006) * portion(rep.period) * (1 + Math.max(-0.25, Math.min(0.25, rep.sur || 0))));
+    if (dps < 0.005) return null;
+    const exAt = addTradingDays(clock, 12 + (hashSym(i.s + rep.period) % 10));
+    const payAt = addTradingDays(exAt, 10 + (hashSym(i.s + "pay") % 8));
+    return { s: i.s, period: rep.period, dps, ex: dayKey(exAt), pay: dayKey(payAt), exed: false, paid: false };
+  }
+  function seedDivs(clock, reports) {
+    const out = {};
+    const today = dayKey(clock);
+    for (const i of UNIVERSE) {
+      if (!isStock(i)) continue;
+      const rep = reports[i.s];
+      if (!rep) continue;
+      const last = (state && state.quotes && state.quotes[i.s] && state.quotes[i.s].last) || i.start;
+      const div = declareDiv(i, rep, rep.at || clock, last, (hashSym(i.s + "seeddiv") % 1000) / 1000);
+      if (!div) continue;
+      if (today > div.pay) { div.exed = true; div.paid = true; }
+      else if (today >= div.ex) div.exed = true;
+      out[i.s] = div;
+    }
+    return out;
+  }
   const FUND = {
     HSI: 1, BTC: 0.15, "2800": 1, "0005": 0.92, "0700": 0.76, "9988": 0.58, "3690": 0.42,
     "1810": 0.46, "0941": 0.95, "1299": 0.9, "0388": 0.86, "2318": 0.78, "1211": 0.56,
@@ -572,6 +623,7 @@
       halt: null,
       reports: null,
       earnFired: {},
+      dividends: null,
     };
   }
 
@@ -697,6 +749,7 @@
           halt: s.halt || null,
           reports: s.reports || null,
           earnFired: s.earnFired || {},
+          dividends: s.dividends || null,
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -706,6 +759,7 @@
   if (!state.auction) state.auction = rollAuction(state.clock);
   if (!state.reports) state.reports = seedReports(state.clock);
   if (!state.earnFired) state.earnFired = {};
+  if (!state.dividends) state.dividends = seedDivs(state.clock, state.reports);
   if (sessionPhase(state.clock) === "open-input" && (!state.auction.tgt || !Object.keys(state.auction.tgt).length)) {
     beginAuc("open");
   }
@@ -741,6 +795,7 @@
       halt: state.halt,
       reports: state.reports,
       earnFired: state.earnFired,
+      dividends: state.dividends,
       quotes: compactQuotes(state.quotes),
       candles: compactCandles(state.candles),
       news: state.news,
@@ -976,6 +1031,7 @@
   function openDay() {
     const dk = dayKey(state.clock);
     const gapAdj = {};
+    if (!state.dividends) state.dividends = {};
     if (state.halt && dk >= state.halt.until) {
       state.news = state.halt.n + "（" + state.halt.s + "）復牌。停牌期間累積消息，短線波幅或明顯擴大。";
       const sign = Math.random() < 0.5 ? 1 : -1;
@@ -1003,6 +1059,41 @@
       gapAdj[i.s] = (gapAdj[i.s] || 0) + sur * 0.85 + (yoy > 0 ? 0.004 : -0.006);
       const beat = sur >= 0;
       state.news = i.n + "公布" + rep.period + "：營業額 " + fmtYi(rep.rev) + "，純利 " + fmtYi(rep.profit) + "，按年 " + (yoy >= 0 ? "+" : "−") + Math.abs(yoy * 100).toFixed(1) + "%，" + (beat ? "勝" : "遜") + "預期 " + Math.abs(sur * 100).toFixed(1) + "%。";
+      const last = state.quotes[i.s] ? state.quotes[i.s].last : i.start;
+      const main = due.period.indexOf("全年") >= 0 || due.period.indexOf("中期") >= 0;
+      if (rep.profit > 0) {
+        const div = declareDiv(i, { period: due.period, profit: rep.profit, sur: rep.sur }, state.clock, last);
+        if (div) {
+          state.dividends[i.s] = div;
+          state.news = i.n + "宣派" + due.period + "股息每股 " + fmtDps(div.dps) + "。除淨日 " + div.ex.slice(5).replace("-", "/") + "，派息日 " + div.pay.slice(5).replace("-", "/") + "。";
+        } else if (main) {
+          state.news = i.n + "公布" + due.period + "，有純利但董事會決定本期不派息。";
+        }
+      } else if (main) {
+        state.news = i.n + "公布" + due.period + "，有純利但董事會決定本期不派息。";
+      }
+    }
+    for (const s of Object.keys(state.dividends)) {
+      const div = state.dividends[s];
+      const inst = BY[s];
+      if (!inst || !div) continue;
+      if (!div.exed && dk >= div.ex) {
+        const last = state.quotes[s] ? state.quotes[s].last : inst.start;
+        gapAdj[s] = (gapAdj[s] || 0) - Math.min(0.08, div.dps / last);
+        div.exed = true;
+        state.news = inst.n + "今日除淨，每股 " + fmtDps(div.dps) + "。派息日 " + div.pay.slice(5).replace("-", "/") + "。";
+      }
+      if (!div.paid && dk >= div.pay) {
+        div.paid = true;
+        div.exed = true;
+        const p = state.pos.find((x) => x.s === s);
+        if (p) {
+          const amt = p.qty * div.dps * inst.pv;
+          state.cash += amt;
+          toast("派息入帳 " + inst.n + " " + fmtH(amt));
+        }
+        state.news = inst.n + "今日派息，每股 " + fmtDps(div.dps) + " 已按持股入帳。";
+      }
     }
     if (!state.halt && Math.random() < 0.012) {
       const pool = UNIVERSE.filter(isStock);
@@ -1679,7 +1770,12 @@
           ${isStock(inst) ? (() => {
             const rep = state.reports && state.reports[inst.s];
             const nxt = nextFin(inst.s, state.clock, false);
-            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.until.slice(5).replace("-", "/")} · ${esc(state.halt.reason)}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}<div class="muted">下次公布 ${nxt.key} · ${esc(nxt.period)}</div></div>`;
+            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.until.slice(5).replace("-", "/")} · ${esc(state.halt.reason)}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
+              const d = state.dividends && state.dividends[inst.s];
+              if (d && d.dps > 0) return `<div class="div-box" data-div>派息 每股 ${fmtDps(d.dps)}${d.paid ? " · 已派發" : d.exed ? " · 已除淨" : ""}<br><span class="muted">除淨日 ${d.ex} · 派息日 ${d.pay}</span></div>`;
+              if (rep && rep.profit > 0) return `<div class="muted">有純利，本期尚未／不派息</div>`;
+              return `<div class="muted">無純利則不考慮派息</div>`;
+            })()}<div class="muted">下次公布 ${nxt.key} · ${esc(nxt.period)}</div></div>`;
           })() : ""}
           <div class="rr">
             <div class="rr-cell" id="rr-long-box"><div class="cap">偏多盈虧比</div><div class="px mono" id="rr-long">—</div><div class="muted" id="rr-long-t"></div></div>
