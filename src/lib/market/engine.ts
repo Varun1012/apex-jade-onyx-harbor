@@ -150,6 +150,12 @@ export function isAuction(t: number): boolean {
   return p === "open-input" || p === "open-cool" || p === "close-input" || p === "close-random";
 }
 
+/** 09:00–09:30：未開持續交易，不應把 IEP／對盤價畫進陰陽燭。 */
+export function isPreOpenSession(t: number): boolean {
+  const p = sessionPhase(t);
+  return p === "open-input" || p === "open-cool";
+}
+
 export function canEnterAuctionOrders(t: number): boolean {
   const p = sessionPhase(t);
   return p === "open-input" || p === "close-input";

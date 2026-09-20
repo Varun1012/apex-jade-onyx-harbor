@@ -62,8 +62,12 @@ function atr(cs: Candle[], n = 14): number | null {
   return s / take;
 }
 
-export function overlayLive(cs: Candle[], live?: number | null): Candle[] {
-  if (!cs.length || live == null) return cs;
+export function overlayLive(
+  cs: Candle[],
+  live?: number | null,
+  opts?: { freeze?: boolean },
+): Candle[] {
+  if (!cs.length || live == null || opts?.freeze) return cs;
   const copy = cs.slice();
   const last = copy[copy.length - 1]!;
   copy[copy.length - 1] = {

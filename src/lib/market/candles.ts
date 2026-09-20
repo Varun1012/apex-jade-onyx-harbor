@@ -1,6 +1,6 @@
 import { hkDate, hkParts } from "../format";
 import { UNIVERSE, roundTick, volumeUnit, type Instrument } from "./universe";
-import { isContinuous, type Quote } from "./engine";
+import { isContinuous, isPreOpenSession, type Quote } from "./engine";
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
 export type Tf = "5m" | "15m" | "1d";
@@ -93,7 +93,7 @@ function prevTradingParts(from: { year: number; month: number; day: number }) {
 export function bucketStart(clock: number, tf: Tf): number {
   const p = hkParts(clock);
   const mins = p.hour * 60 + p.minute;
-  const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20;
+  const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30;
   if (tf === "1d") {
     if (preOpen) {
       const prev = prevTradingParts(p);
@@ -115,8 +115,11 @@ export function bucketStart(clock: number, tf: Tf): number {
     return hkDate(p.year, p.month, p.day, 16, 0);
   }
   if (p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60) return lastSessionBar(p, step);
-  if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) {
+  if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 30 && mins < 12 * 60) {
     return hkDate(p.year, p.month, p.day, 9, 30);
+  }
+  if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) {
+    return lastSessionBar(prevTradingParts(p), step);
   }
   if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60) {
     return lastSessionBar(prevTradingParts(p), step);
@@ -240,6 +243,7 @@ export function applyTickCandles(
   skip?: Set<string>,
   useIep = false,
 ): CandleBook {
+  if (isPreOpenSession(clock)) return book;
   const ts: Record<Tf, number> = {
     "5m": bucketStart(clock, "5m"),
     "15m": bucketStart(clock, "15m"),
@@ -302,7 +306,7 @@ export function alignCandleCloses(
 export function dropPrematureOpenBars(book: CandleBook, clock: number): CandleBook {
   const p = hkParts(clock);
   const mins = p.hour * 60 + p.minute;
-  if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20)) return book;
+  if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30)) return book;
   const first = hkDate(p.year, p.month, p.day, 9, 30);
   for (const inst of UNIVERSE) {
     const slot = book[inst.symbol];

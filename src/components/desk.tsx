@@ -22,6 +22,7 @@ import {
   hkDayKey,
   isAuction,
   isContinuous,
+  isPreOpenSession,
   sessionLabel,
   sessionPhase,
   usesHkAuction,
@@ -588,15 +589,17 @@ function TicketHead({ symbol }: { symbol: string }) {
 
 function CandleOhlc({ symbol, tf }: { symbol: string; tf: Tf }) {
   const live = useDesk((s) => s.quotes[symbol]?.last);
+  const clock = useDesk((s) => s.clock);
   const bar = useDesk((s) => {
     const list = s.candles[symbol]?.[tf];
     return list?.[list.length - 1] ?? null;
   });
   if (!bar || live == null) return null;
+  const freeze = isPreOpenSession(clock);
   const o = bar.o;
-  const h = Math.max(bar.h, live);
-  const l = Math.min(bar.l, live);
-  const c = live;
+  const h = freeze ? bar.h : Math.max(bar.h, live);
+  const l = freeze ? bar.l : Math.min(bar.l, live);
+  const c = freeze ? bar.c : live;
   const cell = (lab: string, v: number, id?: string) => (
     <div>
       <p className="text-[11px] text-muted-foreground">{lab}</p>
@@ -624,10 +627,11 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
   const ccy = BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD";
+  const freeze = useDesk((s) => isPreOpenSession(s.clock));
   const advice = useMemo(() => {
     const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
-    return advise(series, live, ccy);
-  }, [symbol, tf, live, barT, len, lastVol, ccy]);
+    return advise(series, freeze ? undefined : live, ccy);
+  }, [symbol, tf, live, barT, len, lastVol, ccy, freeze]);
   const stableHints = useMemo(() => {
     const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
     return advise(series, undefined, ccy).hints.slice(0, 3);

@@ -296,7 +296,7 @@
   function bucketStart(clock, tf) {
     const p = hkParts(clock);
     const mins = p.hour * 60 + p.minute;
-    const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20;
+    const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30;
     if (tf === "1d") {
       if (preOpen) {
         const prev = prevTradingParts(p);
@@ -318,7 +318,7 @@
     }
     if (p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60) return lastSessionBar(p, step);
     if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) {
-      return hkDate(p.year, p.month, p.day, 9, 30);
+      return lastSessionBar(prevTradingParts(p), step);
     }
     return hkDate(p.year, p.month, p.day, 9, 30);
   }
@@ -535,6 +535,8 @@
   }
   function overlayLive(cs) {
     if (!cs.length) return cs;
+    const ph = sessionPhase(state.clock);
+    if (ph === "open-input" || ph === "open-cool") return cs;
     const lastPx = state.quotes[state.sel].last;
     const out = cs.slice();
     const b = out[out.length - 1];
@@ -712,7 +714,7 @@
   function dropPremature(book, clock) {
     const p = hkParts(clock);
     const mins = p.hour * 60 + p.minute;
-    if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20)) return;
+    if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30)) return;
     const first = hkDate(p.year, p.month, p.day, 9, 30);
     for (const i of UNIVERSE) {
       if (!book[i.s]) continue;
@@ -910,6 +912,8 @@
   }
 
   function pushC(sym, last, gap) {
+    const ph = sessionPhase(state.clock);
+    if (ph === "open-input" || ph === "open-cool") return;
     const book = state.candles[sym];
     const inst = BY[sym];
     const unit = inst.k === "index" ? 900 : inst.k === "crypto" ? 80 : inst.lot;
@@ -1019,7 +1023,7 @@
       q.h = Math.max(q.h, last);
       q.l = Math.min(q.l, last);
       q.iep = last;
-      pushC(i.s, last, kind === "open");
+      if (kind === "close") pushC(i.s, last, false);
     }
     const hl = state.quotes.HSI.last;
     const etf = rnd(hl / 1000, BY["2800"]);
@@ -1031,7 +1035,7 @@
     if (kind === "open") eq.o = etf;
     eq.h = Math.max(eq.h, etf);
     eq.l = Math.min(eq.l, etf);
-    pushC("2800", etf, kind === "open");
+    if (kind === "close") pushC("2800", etf, false);
   }
   function aucNews(kind) {
     const q = state.quotes["0700"] || state.quotes.HSI;
@@ -1233,6 +1237,7 @@
       return;
     }
     const shock = gauss() * 0.0018;
+    const gapOpen = hp.hour === 9 && hp.minute === 30;
     let newsBias = 0;
     let newsFocus = null;
     if (!state.extreme || state.extreme.day !== dk) state.extreme = rollExtreme(state.clock);
@@ -1299,7 +1304,7 @@
       q.ask = rnd(last + t, i);
       q.h = Math.max(q.h, last);
       q.l = Math.min(q.l, last);
-      pushC(i.s, last);
+      pushC(i.s, last, gapOpen);
     }
     const names = UNIVERSE.filter((i) => i.s !== "HSI" && i.s !== "2800" && i.k !== "crypto");
     const avg = names.reduce((s, i) => s + state.quotes[i.s].last / i.start, 0) / names.length;
@@ -1309,13 +1314,13 @@
     hq.last = hl;
     hq.bid = hl - 1;
     hq.ask = hl + 1;
-    pushC("HSI", hl);
+    pushC("HSI", hl, gapOpen);
     const etf = rnd(hl / 1000, BY["2800"]);
     const eq = state.quotes["2800"];
     eq.last = etf;
     eq.bid = rnd(etf - 0.01, BY["2800"]);
     eq.ask = rnd(etf + 0.01, BY["2800"]);
-    pushC("2800", etf);
+    pushC("2800", etf, gapOpen);
         const eqy = equity();
     if (eqy >= GOAL) {
       state.won = true;
@@ -1428,8 +1433,9 @@
     const raw = cs.slice(-64);
     if (!raw.length) return;
     const lastPx = state.quotes[state.sel].last;
+    const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
     const data = raw.map((c, i, arr) =>
-      i === arr.length - 1 ? { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) } : c
+      !freeze && i === arr.length - 1 ? { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) } : c
     );
     let min = Math.min(...data.map((c) => c.l)), max = Math.max(...data.map((c) => c.h));
     if (min === max) {
@@ -1676,7 +1682,8 @@
     const bar = (state.candles[state.sel] && state.candles[state.sel][state.tf] || []).at(-1);
     const q = state.quotes[state.sel];
     if (!bar || !q) return;
-    const o = bar.o, h = Math.max(bar.h, q.last), l = Math.min(bar.l, q.last), c = q.last;
+    const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
+    const o = bar.o, h = freeze ? bar.h : Math.max(bar.h, q.last), l = freeze ? bar.l : Math.min(bar.l, q.last), c = freeze ? bar.c : q.last;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtP(v); };
     set("ohlc-o", o); set("ohlc-h", h); set("ohlc-l", l); set("ohlc-c", c);
     const wrap = document.getElementById("ohlc");
@@ -1776,7 +1783,8 @@
           <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}${auc ? " · 對盤 " + fmtP(iep) : ""}${halted ? " · 停牌" : ""}</p>
           <div class="ohlc" id="ohlc" data-ohlc>${(() => {
             const bar = series.at(-1);
-            const o = bar ? bar.o : q.last, h = bar ? Math.max(bar.h, q.last) : q.last, l = bar ? Math.min(bar.l, q.last) : q.last, c = q.last;
+            const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
+            const o = bar ? bar.o : q.last, h = bar ? (freeze ? bar.h : Math.max(bar.h, q.last)) : q.last, l = bar ? (freeze ? bar.l : Math.min(bar.l, q.last)) : q.last, c = freeze && bar ? bar.c : q.last;
             return `<span>開 <b class="mono" id="ohlc-o">${fmtP(o)}</b></span><span>高 <b class="mono" id="ohlc-h">${fmtP(h)}</b></span><span>低 <b class="mono" id="ohlc-l">${fmtP(l)}</b></span><span>收 <b class="mono" id="ohlc-c">${fmtP(c)}</b></span>`;
           })()}</div>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
