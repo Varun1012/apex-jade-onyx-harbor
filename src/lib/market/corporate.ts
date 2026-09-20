@@ -78,6 +78,10 @@ const BASE_FIN: Record<string, { revenue: number; profit: number; yoy: number }>
   "1024": { revenue: 310, profit: 14, yoy: 0.12 },
   "9961": { revenue: 148, profit: 32, yoy: 0.17 },
   "9888": { revenue: 268, profit: 36, yoy: 0.05 },
+  "0027": { revenue: 438, profit: 82, yoy: 0.11 },
+  "0293": { revenue: 1040, profit: 92, yoy: 0.08 },
+  "2269": { revenue: 186, profit: 49, yoy: 0.18 },
+  "2899": { revenue: 3050, profit: 322, yoy: 0.15 },
 };
 
 const ANNUAL_YIELD: Record<string, number> = {
@@ -107,6 +111,10 @@ const ANNUAL_YIELD: Record<string, number> = {
   "1024": 0.0,
   "9961": 0.0,
   "9888": 0.0,
+  "0027": 0.018,
+  "0293": 0.058,
+  "2269": 0.0,
+  "2899": 0.022,
 };
 
 function hashSym(s: string): number {

@@ -488,7 +488,16 @@ export const useDesk = create<DeskState>()(
         );
         repairQuotesFromCandles(quotes, candles);
         const histories = mergeHistories(st.histories, quotes);
-        set({ quotes, candles, histories, auction });
+        const reports = { ...seedReports(st.clock), ...(st.reports ?? {}) };
+        const dividends = {
+          ...seedDividends(
+            st.clock,
+            reports,
+            Object.fromEntries(UNIVERSE.map((i) => [i.symbol, quotes[i.symbol]?.last ?? i.start])),
+          ),
+          ...(st.dividends ?? {}),
+        };
+        set({ quotes, candles, histories, auction, reports, dividends });
         saveCandleBook(candles);
       },
       select: (symbol) => set({ selected: symbol }),
@@ -512,16 +521,16 @@ export const useDesk = create<DeskState>()(
         let news = st.news;
         let toast = st.toast;
         let halt = st.halt;
-        let reports = st.reports && Object.keys(st.reports).length ? st.reports : seedReports(clock);
+        let reports = { ...seedReports(clock), ...(st.reports ?? {}) };
         let earnFired = st.earnFired ?? {};
-        let dividends =
-          st.dividends && Object.keys(st.dividends).length
-            ? st.dividends
-            : seedDividends(
-                clock,
-                reports,
-                Object.fromEntries(UNIVERSE.map((i) => [i.symbol, quotes[i.symbol]?.last ?? i.start])),
-              );
+        let dividends = {
+          ...seedDividends(
+            clock,
+            reports,
+            Object.fromEntries(UNIVERSE.map((i) => [i.symbol, quotes[i.symbol]?.last ?? i.start])),
+          ),
+          ...(st.dividends ?? {}),
+        };
         const extraNews: NewsItem[] = [];
 
         if (auction.dayKey !== dayKey) {
