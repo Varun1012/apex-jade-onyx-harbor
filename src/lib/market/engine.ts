@@ -502,6 +502,13 @@ export function rollAuctionBook(clock: number): AuctionBook {
   };
 }
 
+function closeAuctionGap(inst: Instrument): number {
+  let g = gauss() * inst.vol * 0.7;
+  const min = inst.kind === "index" ? 0.0007 : 0.0012;
+  if (Math.abs(g) < min) g = (Math.random() < 0.5 ? 1 : -1) * (min + Math.random() * min);
+  return g;
+}
+
 function overnightGap(inst: Instrument): number {
   const q = fundamentalScore(inst.symbol);
   let gap = gauss() * inst.vol * 1.6;
@@ -529,7 +536,7 @@ export function beginAuctionSession(
       continue;
     }
     const base = kind === "open" ? q.prevClose : q.last;
-    let g = kind === "open" ? overnightGap(inst) : gauss() * inst.vol * 0.45;
+    let g = kind === "open" ? overnightGap(inst) : closeAuctionGap(inst);
     if (kind === "open") g += ctx?.gapAdj?.[inst.symbol] ?? 0;
     const boost = ctx?.volBoost?.[inst.symbol] ?? 1;
     g *= Math.sqrt(boost);

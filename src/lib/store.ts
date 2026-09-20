@@ -488,7 +488,7 @@ export const useDesk = create<DeskState>()(
         if (morningMatch || closeMatch) {
           const kind = morningMatch ? "open" : "close";
           quotes = matchAuction(quotes, kind, ctx);
-          candles = applyTickCandles(candles, quotes, clock, true, ctx.halted);
+          candles = applyTickCandles(candles, quotes, clock, kind === "open", ctx.halted);
           if (morningMatch) auction = { ...auction, morningDone: true };
           else auction = { ...auction, closeDone: true };
           extraNews.push(auctionGapNews(quotes, clock, kind));
@@ -554,6 +554,7 @@ export const useDesk = create<DeskState>()(
           return;
         } else if (isAuctionPhaseWalk(clock, auction)) {
           quotes = stepAuctionIep(quotes, auction, ctx);
+          candles = applyTickCandles(candles, quotes, clock, false, ctx.halted, true);
         }
 
         const eq = equityOf(cash, positions, quotes);

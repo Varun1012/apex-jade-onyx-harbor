@@ -849,7 +849,7 @@
         c.l = Math.min(c.l, last, c.o);
         c.v = (c.v || 0) + tickV;
       } else {
-        const o = gap && last !== undefined ? last : (c ? c.c : last);
+        const o = gap ? last : (c ? c.c : last);
         arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: tickV });
         if (arr.length > cap) arr.shift();
       }
@@ -884,7 +884,13 @@
         continue;
       }
       const base = kind === "open" ? q.prev : q.last;
-      const g = kind === "open" ? overnightGap(i) : gauss() * i.vol * 0.45;
+      let g;
+      if (kind === "open") g = overnightGap(i);
+      else {
+        g = gauss() * i.vol * 0.7;
+        const min = i.k === "index" ? 0.0007 : 0.0012;
+        if (Math.abs(g) < min) g = (Math.random() < 0.5 ? 1 : -1) * (min + Math.random() * min);
+      }
       const raw = Math.max(0.01, base * (1 + g));
       tgt[i.s] = rnd(raw, i);
       q.iep = q.last;
@@ -934,7 +940,7 @@
       q.h = Math.max(q.h, last);
       q.l = Math.min(q.l, last);
       q.iep = last;
-      pushC(i.s, last, true);
+      pushC(i.s, last, kind === "open");
     }
     const hl = state.quotes.HSI.last;
     const etf = rnd(hl / 1000, BY["2800"]);
@@ -946,7 +952,7 @@
     if (kind === "open") eq.o = etf;
     eq.h = Math.max(eq.h, etf);
     eq.l = Math.min(eq.l, etf);
-    pushC("2800", etf, true);
+    pushC("2800", etf, kind === "open");
   }
   function aucNews(kind) {
     const q = state.quotes["0700"] || state.quotes.HSI;
@@ -1096,6 +1102,12 @@
       const ph = sessionPhase(state.clock);
       if ((ph === "open-input" && !state.auction.am) || ((ph === "close-input" || ph === "close-random") && !state.auction.pm)) {
         stepIep();
+        for (const i of UNIVERSE) {
+          if (haltedNow(i.s)) continue;
+          const q = state.quotes[i.s];
+          const px = usesAuc(i) ? (q.iep > 0 ? q.iep : q.last) : q.last;
+          pushC(i.s, px, false);
+        }
       }
       persist();
       if (sessionPhase(state.clock) !== prevPhase) render();

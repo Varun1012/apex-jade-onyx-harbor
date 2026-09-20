@@ -1,7 +1,6 @@
 import { hkDate, hkParts } from "../format";
 import { UNIVERSE, roundTick, volumeUnit, type Instrument } from "./universe";
-import type { Quote } from "./engine";
-import { isContinuous } from "./engine";
+import { isContinuous, type Quote } from "./engine";
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
 export type Tf = "5m" | "15m" | "1d";
@@ -224,6 +223,7 @@ export function applyTickCandles(
   clock: number,
   gap = false,
   skip?: Set<string>,
+  useIep = false,
 ): CandleBook {
   const ts: Record<Tf, number> = {
     "5m": bucketStart(clock, "5m"),
@@ -234,7 +234,7 @@ export function applyTickCandles(
     const q = quotes[inst.symbol];
     if (!q) continue;
     if (skip?.has(inst.symbol)) continue;
-    const c = q.last;
+    const c = useIep && q.iep > 0 ? q.iep : q.last;
     const unit = volumeUnit(inst);
     const chg = q.prevClose ? Math.abs(c - q.prevClose) / q.prevClose : 0;
     const tickV = Math.max(1, Math.round(unit * (5 + Math.random() * 20) * (0.65 + chg * 70)));
