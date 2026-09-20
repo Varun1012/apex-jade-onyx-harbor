@@ -19,6 +19,7 @@ export type Quote = {
   high: number;
   low: number;
   prevClose: number;
+  iep: number;
 };
 
 export type NewsItem = {
@@ -80,33 +81,107 @@ export function seedQuotes(): Record<string, Quote> {
       high: sp.last,
       low: sp.last,
       prevClose: sp.last,
+      iep: sp.last,
     };
   }
   return out;
 }
 
+export type SessionPhase =
+  | "closed"
+  | "open-input"
+  | "open-cool"
+  | "continuous"
+  | "lunch"
+  | "close-input"
+  | "close-random";
+
+export type AuctionBook = {
+  dayKey: string;
+  closeAt: number;
+  morningDone: boolean;
+  closeDone: boolean;
+  target: Record<string, number>;
+};
+
+function weekdayMins(t: number): { weekday: number; mins: number; p: ReturnType<typeof hkParts> } {
+  const p = hkParts(t);
+  return { weekday: p.weekday, mins: p.hour * 60 + p.minute, p };
+}
+
+export function sessionPhase(t: number): SessionPhase {
+  const { weekday, mins } = weekdayMins(t);
+  if (weekday === 0 || weekday === 6) return "closed";
+  if (mins >= 9 * 60 && mins < 9 * 60 + 20) return "open-input";
+  if (mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) return "open-cool";
+  if (mins >= 9 * 60 + 30 && mins < 12 * 60) return "continuous";
+  if (mins >= 12 * 60 && mins < 13 * 60) return "lunch";
+  if (mins >= 13 * 60 && mins < 16 * 60) return "continuous";
+  if (mins >= 16 * 60 && mins < 16 * 60 + 8) return "close-input";
+  if (mins >= 16 * 60 + 8 && mins < 16 * 60 + 10) return "close-random";
+  return "closed";
+}
+
+export function sessionLabel(t: number): string {
+  switch (sessionPhase(t)) {
+    case "open-input":
+      return "開市競價 · 輸入買賣盤 09:00–09:20";
+    case "open-cool":
+      return "開市競價 · 冷靜期 09:20–09:30";
+    case "continuous":
+      return "持續交易";
+    case "lunch":
+      return "午休停市 12:00–13:00";
+    case "close-input":
+      return "收市競價 · 輸入買賣盤 16:00–16:08";
+    case "close-random":
+      return "收市競價 · 隨機對盤 16:08–16:10";
+    default:
+      return "休市";
+  }
+}
+
+export function isContinuous(t: number): boolean {
+  return sessionPhase(t) === "continuous";
+}
+
+export function isAuction(t: number): boolean {
+  const p = sessionPhase(t);
+  return p === "open-input" || p === "open-cool" || p === "close-input" || p === "close-random";
+}
+
+export function canEnterAuctionOrders(t: number): boolean {
+  const p = sessionPhase(t);
+  return p === "open-input" || p === "close-input";
+}
+
+export function isClockOn(t: number): boolean {
+  const { weekday, mins } = weekdayMins(t);
+  if (weekday === 0 || weekday === 6) return false;
+  return (mins >= 9 * 60 && mins < 12 * 60) || (mins >= 13 * 60 && mins < 16 * 60 + 10);
+}
+
+export function usesHkAuction(inst: Instrument): boolean {
+  return inst.kind !== "crypto";
+}
+
 export function nextMarketOpen(from: number): number {
   const p = hkParts(from);
   const mins = p.hour * 60 + p.minute;
-  if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30) {
-    return hkDate(p.year, p.month, p.day, 9, 30);
+  if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60) {
+    return hkDate(p.year, p.month, p.day, 9, 0);
   }
-  let t = hkDate(p.year, p.month, p.day, 9, 30) + 86_400_000;
+  let t = hkDate(p.year, p.month, p.day, 9, 0) + 86_400_000;
   for (let i = 0; i < 8; i++) {
     const q = hkParts(t);
-    if (q.weekday >= 1 && q.weekday <= 5) return hkDate(q.year, q.month, q.day, 9, 30);
+    if (q.weekday >= 1 && q.weekday <= 5) return hkDate(q.year, q.month, q.day, 9, 0);
     t += 86_400_000;
   }
   return t;
 }
 
 export function isSession(t: number): boolean {
-  const p = hkParts(t);
-  if (p.weekday === 0 || p.weekday === 6) return false;
-  const mins = p.hour * 60 + p.minute;
-  const morning = mins >= 9 * 60 + 30 && mins < 12 * 60;
-  const afternoon = mins >= 13 * 60 && mins < 16 * 60;
-  return morning || afternoon;
+  return isContinuous(t);
 }
 
 export function advanceClock(t: number, minutes: number): number {
@@ -118,7 +193,7 @@ export function advanceClock(t: number, minutes: number): number {
     const mins = p.hour * 60 + p.minute;
     if (mins === 12 * 60) {
       cur = hkDate(p.year, p.month, p.day, 13, 0);
-    } else if (mins >= 16 * 60 || p.weekday === 0 || p.weekday === 6) {
+    } else if (mins >= 16 * 60 + 10 || p.weekday === 0 || p.weekday === 6) {
       cur = nextMarketOpen(cur);
     }
     left -= 1;
@@ -255,6 +330,7 @@ function writeQuote(
     high: Math.max(q.high, sp.last),
     low: Math.min(q.low, sp.last),
     prevClose: q.prevClose,
+    iep: sp.last,
   };
   const h = histories[inst.symbol];
   if (h) {
@@ -384,6 +460,7 @@ export function stepMarket(
     high: Math.max(eq.high, etfSp.last),
     low: Math.min(eq.low, etfSp.last),
     prevClose: eq.prevClose,
+    iep: etfSp.last,
   };
 
   return { quotes: next, news, histories: nextHist, extremeFired };
@@ -398,7 +475,149 @@ export function rollDay(quotes: Record<string, Quote>): Record<string, Quote> {
       high: q.last,
       low: q.last,
       prevClose: q.last,
+      iep: q.last,
     };
   }
   return next;
+}
+
+export function rollAuctionBook(clock: number): AuctionBook {
+  const p = hkParts(clock);
+  const extra = Math.floor(Math.random() * 3);
+  return {
+    dayKey: hkDayKey(clock),
+    closeAt: hkDate(p.year, p.month, p.day, 16, 8 + extra),
+    morningDone: false,
+    closeDone: false,
+    target: {},
+  };
+}
+
+function overnightGap(inst: Instrument): number {
+  const q = fundamentalScore(inst.symbol);
+  let gap = gauss() * inst.vol * 1.6;
+  if (Math.random() < 0.1) {
+    const mag = 0.012 + Math.random() * (0.025 + (1 - q) * 0.05);
+    gap += (Math.random() < 0.5 ? 1 : -1) * mag;
+  }
+  return gap * (0.55 + (1 - q) * 1.2);
+}
+
+export function beginAuctionSession(
+  quotes: Record<string, Quote>,
+  book: AuctionBook,
+  kind: "open" | "close",
+): { quotes: Record<string, Quote>; book: AuctionBook } {
+  const target: Record<string, number> = { ...book.target };
+  const next: Record<string, Quote> = { ...quotes };
+  for (const inst of UNIVERSE) {
+    const q = quotes[inst.symbol];
+    if (!q) continue;
+    if (!usesHkAuction(inst)) {
+      next[inst.symbol] = { ...q, iep: q.last };
+      target[inst.symbol] = q.last;
+      continue;
+    }
+    const base = kind === "open" ? q.prevClose : q.last;
+    const g = kind === "open" ? overnightGap(inst) : gauss() * inst.vol * 0.45;
+    const raw = Math.max(tickSize(base, inst.kind), base * (1 + g));
+    const tgt = inst.kind === "index" ? Math.round(raw) : roundTick(raw, inst.kind);
+    target[inst.symbol] = tgt;
+    next[inst.symbol] = { ...q, iep: q.last };
+  }
+  const hsi = next.HSI;
+  const etf = next["2800"];
+  if (hsi && etf) {
+    target["2800"] = roundTick(target.HSI! / 1000, "etf");
+    next["2800"] = { ...etf, iep: etf.last };
+  }
+  return { quotes: next, book: { ...book, target } };
+}
+
+export function stepAuctionIep(
+  quotes: Record<string, Quote>,
+  book: AuctionBook,
+): Record<string, Quote> {
+  const next: Record<string, Quote> = { ...quotes };
+  for (const inst of UNIVERSE) {
+    const q = quotes[inst.symbol];
+    if (!q) continue;
+    if (!usesHkAuction(inst)) {
+      next[inst.symbol] = { ...q, iep: q.last };
+      continue;
+    }
+    const tgt = book.target[inst.symbol] ?? q.last;
+    const cur = q.iep > 0 ? q.iep : q.last;
+    const raw = cur + (tgt - cur) * 0.14 + gauss() * inst.vol * cur * 0.035;
+    const iep = inst.kind === "index" ? Math.round(raw) : roundTick(raw, inst.kind);
+    next[inst.symbol] = { ...q, iep, bid: iep, ask: iep };
+  }
+  const hsi = next.HSI;
+  const etfQ = next["2800"];
+  const etf = BY_SYMBOL["2800"];
+  if (hsi && etfQ && etf) {
+    const iep = roundTick(hsi.iep / 1000, etf.kind);
+    next["2800"] = { ...etfQ, iep, bid: iep, ask: iep };
+  }
+  return next;
+}
+
+export function matchAuction(
+  quotes: Record<string, Quote>,
+  kind: "open" | "close",
+): Record<string, Quote> {
+  const next: Record<string, Quote> = { ...quotes };
+  for (const inst of UNIVERSE) {
+    const q = quotes[inst.symbol];
+    if (!q) continue;
+    if (!usesHkAuction(inst)) {
+      next[inst.symbol] = { ...q, iep: q.last };
+      continue;
+    }
+    const px = q.iep > 0 ? q.iep : q.last;
+    const sp = applySpread(inst, px);
+    next[inst.symbol] = {
+      ...sp,
+      open: kind === "open" ? sp.last : q.open,
+      high: Math.max(q.high, sp.last),
+      low: Math.min(q.low, sp.last),
+      prevClose: q.prevClose,
+      iep: sp.last,
+    };
+  }
+  const hsi = next.HSI;
+  const etf = BY_SYMBOL["2800"];
+  const eq = next["2800"];
+  if (hsi && etf && eq) {
+    const sp = applySpread(etf, hsi.last / 1000);
+    next["2800"] = {
+      ...sp,
+      open: kind === "open" ? sp.last : eq.open,
+      high: Math.max(eq.high, sp.last),
+      low: Math.min(eq.low, sp.last),
+      prevClose: eq.prevClose,
+      iep: sp.last,
+    };
+  }
+  return next;
+}
+
+export function auctionGapNews(
+  quotes: Record<string, Quote>,
+  clock: number,
+  kind: "open" | "close",
+): NewsItem {
+  const focus = quotes["0700"] ?? quotes.HSI;
+  const prev = focus?.prevClose || focus?.last || 1;
+  const last = focus?.last || prev;
+  const chg = (last - prev) / prev;
+  const name = quotes["0700"] ? "騰訊控股" : "恒生指數";
+  const verb = kind === "open" ? (chg >= 0 ? "高開" : "低開") : chg >= 0 ? "高收" : "低收";
+  const pct = `${chg >= 0 ? "+" : "−"}${Math.abs(chg * 100).toFixed(2)}%`;
+  const when = kind === "open" ? "開市競價對盤完畢，進入冷靜期至 09:30" : "收市競價隨機對盤完畢";
+  return {
+    id: `${clock}-auc${kind}`,
+    text: `${when}。${name}${verb} ${pct}。對盤價與前收之間可出現裂口。`,
+    at: clock,
+  };
 }

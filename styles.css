@@ -178,6 +178,10 @@ section.col { background: var(--bg); padding: 16px; min-width: 0; }
 }
 .ohlc b { display: block; color: var(--fg); font-weight: 500; margin-top: 1px; }
 .bidask { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.bidask:has(.iep) { grid-template-columns: 1fr; }
+.iep { border-radius: 10px; padding: 10px 12px; background: var(--secondary); }
+.iep .px { font-size: 20px; margin-top: 2px; }
+button:disabled { opacity: 0.4; pointer-events: none; }
 .bid, .ask { border-radius: 10px; padding: 10px 12px; }
 .bid { background: var(--down-soft); color: var(--down); }
 .ask { background: var(--up-soft); color: var(--up); }

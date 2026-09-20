@@ -17,6 +17,14 @@ import { advise } from "@/lib/market/ta";
 import type { Tf } from "@/lib/market/candles";
 import { createAmbient, type AmbientHandle } from "@/lib/ambient";
 import { equityOf, useDesk, type Speed } from "@/lib/store";
+import {
+  canEnterAuctionOrders,
+  isAuction,
+  isContinuous,
+  sessionLabel,
+  sessionPhase,
+  usesHkAuction,
+} from "@/lib/market/engine";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -139,7 +147,7 @@ function HeaderBar() {
       <div className="mt-4">
         <GoalBar />
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。
+          交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。
         </p>
       </div>
     </header>
@@ -148,7 +156,7 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
-  return <Stat label="模擬時間" value={formatSimTime(clock)} />;
+  return <Stat label="模擬時間" value={formatSimTime(clock)} sub={<span>{sessionLabel(clock)}</span>} />;
 }
 
 function HsiStat() {
@@ -523,7 +531,7 @@ function Ticket() {
       <Hints symbol={selected} tf={tf} />
       <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        港股慣例：紅升綠跌。買入以賣出價成交，賣出以買入價成交。可沽空。恒指迷你最高十倍槓桿。
+        港股慣例：紅升綠跌。持續交易時買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交，開／收市價相對前收可出現缺口。
       </p>
       <OrderTicket symbol={selected} />
     </div>
@@ -534,8 +542,11 @@ function TicketHead({ symbol }: { symbol: string }) {
   const inst = BY_SYMBOL[symbol]!;
   const last = useDesk((s) => s.quotes[symbol]?.last);
   const prev = useDesk((s) => s.quotes[symbol]?.prevClose);
+  const iep = useDesk((s) => s.quotes[symbol]?.iep);
+  const clock = useDesk((s) => s.clock);
   if (last == null || prev == null) return null;
   const chg = (last - prev) / prev;
+  const auction = isAuction(clock) && usesHkAuction(inst);
   return (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -561,6 +572,7 @@ function TicketHead({ symbol }: { symbol: string }) {
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground" data-prev-close>
         收市 {px(prev, symbol)}
+        {auction && iep ? ` · 對盤 ${px(iep, symbol)}` : ""}
       </p>
     </>
   );
@@ -679,7 +691,21 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
 function BidAsk({ symbol }: { symbol: string }) {
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  const iep = useDesk((s) => s.quotes[symbol]?.iep);
+  const clock = useDesk((s) => s.clock);
+  const inst = BY_SYMBOL[symbol];
   if (bid == null || ask == null) return null;
+  const auction = !!(inst && usesHkAuction(inst) && isAuction(clock));
+  const pxIep = iep ?? lastOr(bid, ask);
+  if (auction) {
+    return (
+      <div className="mt-3 rounded-lg border border-border bg-secondary/60 px-3 py-2">
+        <p className="text-[11px] text-muted-foreground">競價對盤價 IEP（掛盤待對盤，即時不成交）</p>
+        <p className="font-mono text-lg tabular-nums">{px(pxIep, symbol)}</p>
+        <p className="text-[11px] text-muted-foreground">{sessionLabel(clock)}</p>
+      </div>
+    );
+  }
   return (
     <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
       <div className="rounded-lg bg-down-soft px-3 py-2">
@@ -692,6 +718,10 @@ function BidAsk({ symbol }: { symbol: string }) {
       </div>
     </div>
   );
+}
+
+function lastOr(a: number, b: number) {
+  return (a + b) / 2;
 }
 
 const QtyField = memo(function QtyField({
@@ -735,6 +765,9 @@ function OrderTicket({ symbol }: { symbol: string }) {
   const cash = useDesk((s) => s.cash);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
+  const iep = useDesk((s) => s.quotes[symbol]?.iep);
+  const clock = useDesk((s) => s.clock);
+  const pending = useDesk((s) => s.pending);
   const qtyRef = useRef(defaultQty(symbol));
   const [qtyView, setQtyView] = useState(defaultQty(symbol));
   const [lev, setLev] = useState(1);
@@ -751,9 +784,14 @@ function OrderTicket({ symbol }: { symbol: string }) {
   if (ask == null || bid == null) return null;
   const n = parseQty(qtyView, symbol);
   const levClamped = Math.min(lev, inst.maxLeverage);
-  const buyNotional = n * ask * inst.pointValue;
-  const sellNotional = n * bid * inst.pointValue;
+  const auction = usesHkAuction(inst) && isAuction(clock);
+  const pxTrade = auction ? iep ?? ask : ask;
+  const pxSell = auction ? iep ?? bid : bid;
+  const buyNotional = n * pxTrade * inst.pointValue;
+  const sellNotional = n * pxSell * inst.pointValue;
   const buyMargin = buyNotional / levClamped;
+  const canSubmit = !auction || canEnterAuctionOrders(clock);
+  const phase = sessionPhase(clock);
 
   function submit(side: "buy" | "sell") {
     const qty = parseQty(qtyRef.current, symbol);
@@ -763,6 +801,11 @@ function OrderTicket({ symbol }: { symbol: string }) {
 
   return (
     <div className="mt-4 grid gap-3">
+      {pending ? (
+        <p className="rounded-md bg-secondary px-3 py-2 text-[12px] text-muted-foreground">
+          已掛競價盤：{pending.side === "buy" ? "買入" : "賣出"} {pending.symbol}，待對盤成交。
+        </p>
+      ) : null}
       <label className="text-xs text-muted-foreground">
         數量{inst.kind === "index" ? "（口）" : inst.kind === "crypto" ? "（BTC）" : "（股）"}
         <QtyField resetKey={symbol} qtyRef={qtyRef} onTyped={setQtyView} />
@@ -793,13 +836,18 @@ function OrderTicket({ symbol }: { symbol: string }) {
       </div>
       {err ? <p className="text-sm text-up">{err}</p> : null}
       <div className="grid grid-cols-2 gap-2">
-        <Button variant="buy" onClick={() => submit("buy")}>
-          買入 @ {px(ask, symbol)}
+        <Button variant="buy" onClick={() => submit("buy")} disabled={!canSubmit}>
+          {auction ? `對盤買入 @ ${px(pxTrade, symbol)}` : `買入 @ ${px(ask, symbol)}`}
         </Button>
-        <Button variant="sell" onClick={() => submit("sell")}>
-          賣出 @ {px(bid, symbol)}
+        <Button variant="sell" onClick={() => submit("sell")} disabled={!canSubmit}>
+          {auction ? `對盤賣出 @ ${px(pxSell, symbol)}` : `賣出 @ ${px(bid, symbol)}`}
         </Button>
       </div>
+      {!canSubmit && auction ? (
+        <p className="text-[11px] text-muted-foreground">
+          {phase === "open-cool" ? "冷靜期暫停輸入買賣盤，09:30 開市後可即時成交。" : "隨機對盤期間暫停輸入買賣盤。"}
+        </p>
+      ) : null}
       <p className="text-[11px] text-muted-foreground">
         賣出名義 {formatHkd(sellNotional)}
         {levClamped > 1 ? ` · 保證金佔名義 1/${levClamped}` : ""}

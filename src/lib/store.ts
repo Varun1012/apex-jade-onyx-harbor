@@ -8,20 +8,34 @@ import {
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
+  adoptFormingBars,
   applyTickCandles,
+  compactCandleBook,
   ensureCandles,
+  expandCandleBook,
+  repairQuotesFromCandles,
   seedCandles,
   type CandleBook,
 } from "./market/candles";
 import {
   advanceClock,
+  auctionGapNews,
+  beginAuctionSession,
+  canEnterAuctionOrders,
   hkDayKey,
-  isSession,
+  isClockOn,
+  isContinuous,
+  matchAuction,
   nextMarketOpen,
+  rollAuctionBook,
   rollDay,
   rollExtremeEvent,
   seedQuotes,
+  sessionPhase,
+  stepAuctionIep,
   stepMarket,
+  usesHkAuction,
+  type AuctionBook,
   type ExtremeSchedule,
   type NewsItem,
   type Quote,
@@ -46,6 +60,13 @@ export type Fill = {
   leverage: number;
 };
 
+export type AuctionOrder = {
+  symbol: string;
+  side: Side;
+  qty: number;
+  leverage: number;
+};
+
 export type Speed = 0 | 1 | 4 | 12;
 
 type DeskState = {
@@ -64,6 +85,8 @@ type DeskState = {
   toast: string | null;
   musicOn: boolean;
   extreme: ExtremeSchedule | null;
+  auction: AuctionBook;
+  pending: AuctionOrder | null;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -76,8 +99,7 @@ type DeskState = {
 };
 
 function seedClock(): number {
-  const d = new Date("2026-09-14T01:30:00Z");
-  return d.getTime();
+  return new Date("2026-09-14T01:00:00Z").getTime();
 }
 
 function seedHistories(quotes: Record<string, Quote>): Record<string, number[]> {
@@ -86,24 +108,41 @@ function seedHistories(quotes: Record<string, Quote>): Record<string, number[]> 
   return h;
 }
 
+function mergeHistories(
+  existing: Record<string, number[]>,
+  quotes: Record<string, Quote>,
+): Record<string, number[]> {
+  const out = { ...existing };
+  for (const inst of UNIVERSE) {
+    const last = quotes[inst.symbol]?.last ?? inst.start;
+    if (!out[inst.symbol]?.length) out[inst.symbol] = [last];
+  }
+  return out;
+}
+
 function mergeQuotes(existing: Record<string, Quote>): Record<string, Quote> {
   const seeded = seedQuotes();
   const out = { ...seeded, ...existing };
   for (const inst of UNIVERSE) {
-    if (!out[inst.symbol]) out[inst.symbol] = seeded[inst.symbol]!;
+    const q = out[inst.symbol] ?? seeded[inst.symbol]!;
+    out[inst.symbol] = {
+      ...q,
+      iep: typeof q.iep === "number" && q.iep > 0 ? q.iep : q.last,
+    };
   }
   return out;
 }
 
 function initial() {
-  const quotes = seedQuotes();
+  const quotes0 = seedQuotes();
   const clock = seedClock();
+  const started = beginAuctionSession(quotes0, rollAuctionBook(clock), "open");
   return {
     cash: STARTING_CASH,
     clock,
-    quotes,
-    histories: seedHistories(quotes),
-    candles: seedCandles(quotes, clock),
+    quotes: started.quotes,
+    histories: seedHistories(started.quotes),
+    candles: seedCandles(started.quotes, clock),
     positions: [] as Position[],
     fills: [] as Fill[],
     news: [] as NewsItem[],
@@ -114,6 +153,8 @@ function initial() {
     toast: null as string | null,
     musicOn: false,
     extreme: null as ExtremeSchedule | null,
+    auction: started.book,
+    pending: null as AuctionOrder | null,
   };
 }
 
@@ -140,8 +181,143 @@ export function equityOf(cash: number, positions: Position[], quotes: Record<str
   return cash + positions.reduce((s, p) => s + positionValue(p, quotes[p.symbol]!), 0);
 }
 
+function isAuctionPhaseWalk(clock: number, auction: AuctionBook): boolean {
+  const ph = sessionPhase(clock);
+  if (ph === "open-input") return !auction.morningDone;
+  if (ph === "close-input" || ph === "close-random") return !auction.closeDone;
+  return false;
+}
+
+function liquidateIfNeeded(
+  cash: number,
+  positions: Position[],
+  quotes: Record<string, Quote>,
+): { cash: number; positions: Position[]; toast: string | null } {
+  if (!positions.length) return { cash, positions, toast: null };
+  const liquidated: string[] = [];
+  const kept = positions.filter((p) => {
+    const q = quotes[p.symbol];
+    if (!q) return true;
+    const inst = BY_SYMBOL[p.symbol]!;
+    const mtm = markPrice(q, p.qty);
+    const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
+    const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
+    if (p.leverage > 1 && pnl <= -margin * 0.8) {
+      cash += Math.max(0, margin + pnl);
+      liquidated.push(p.symbol);
+      return false;
+    }
+    return true;
+  });
+  return {
+    cash,
+    positions: liquidated.length ? kept : positions,
+    toast: liquidated.length
+      ? `${liquidated.map((s) => BY_SYMBOL[s]?.name ?? s).join("、")} 已強制平倉`
+      : null,
+  };
+}
+
+function fillPending(
+  pending: AuctionOrder,
+  quotes: Record<string, Quote>,
+  cash: number,
+  positions: Position[],
+  fills: Fill[],
+  clock: number,
+): { cash: number; positions: Position[]; fills: Fill[]; toast: string } | null {
+  const inst = BY_SYMBOL[pending.symbol];
+  const q = quotes[pending.symbol];
+  if (!inst || !q) return null;
+  const price = q.iep > 0 ? q.iep : q.last;
+  const side = pending.side;
+  const qty = pending.qty;
+  const signed = side === "buy" ? qty : -qty;
+  const lev = pending.leverage;
+  let nextPos = positions.map((p) => ({ ...p }));
+  const idx = nextPos.findIndex((p) => p.symbol === pending.symbol);
+  const existing = idx >= 0 ? nextPos[idx]! : null;
+  if (existing && Math.sign(existing.qty) !== 0 && Math.sign(existing.qty) !== Math.sign(signed)) {
+    const closeQty = Math.min(Math.abs(existing.qty), qty);
+    const closeSigned = existing.qty > 0 ? -closeQty : closeQty;
+    const pnl = (price - existing.avgPrice) * (existing.qty > 0 ? closeQty : -closeQty) * inst.pointValue;
+    const marginRelease = notional(pending.symbol, closeQty, existing.avgPrice) / existing.leverage;
+    cash += marginRelease + pnl;
+    const remain = existing.qty + closeSigned;
+    if (Math.abs(remain) < 1e-12) nextPos.splice(idx, 1);
+    else nextPos[idx] = { ...existing, qty: remain };
+  } else if (existing && existing.leverage === lev) {
+    const newQty = existing.qty + signed;
+    const newAvg =
+      (existing.avgPrice * Math.abs(existing.qty) + price * qty) / Math.abs(newQty);
+    nextPos[idx] = { ...existing, qty: newQty, avgPrice: newAvg };
+  } else if (existing) {
+    return {
+      cash,
+      positions,
+      fills,
+      toast: "競價對盤失敗：請先平倉再改槓桿",
+    };
+  } else {
+    const cost = notional(pending.symbol, qty, price) / lev;
+    if (cost > cash + 1e-6) {
+      return { cash, positions, fills, toast: "競價對盤失敗，現金不足" };
+    }
+    cash -= cost;
+    nextPos.push({ symbol: pending.symbol, qty: signed, avgPrice: price, leverage: lev });
+  }
+  const nextFills = [
+    {
+      id: `${clock}-auc${Math.random().toString(36).slice(2, 7)}`,
+      clock,
+      symbol: pending.symbol,
+      side,
+      qty,
+      price,
+      leverage: lev,
+    },
+    ...fills,
+  ].slice(0, 80);
+  return {
+    cash,
+    positions: nextPos,
+    fills: nextFills,
+    toast: `競價對盤成交 ${inst.name} ${side === "buy" ? "買入" : "賣出"} ${qty} @ ${price}`,
+  };
+}
+
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const persistBuffer = { name: "", value: "" };
+const CANDLE_KEY = "hk-paper-desk-candles-v1";
+
+function loadCandleBook(): CandleBook | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = localStorage.getItem(CANDLE_KEY);
+    if (!raw) return undefined;
+    return expandCandleBook(JSON.parse(raw));
+  } catch {
+    return undefined;
+  }
+}
+
+function saveCandleBook(book: CandleBook) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CANDLE_KEY, JSON.stringify(compactCandleBook(book)));
+  } catch {
+    try {
+      const slim = compactCandleBook(book);
+      for (const sym of Object.keys(slim)) {
+        delete slim[sym]!["5m"];
+      }
+      localStorage.setItem(CANDLE_KEY, JSON.stringify(slim));
+    } catch {
+      /* quota */
+    }
+  }
+}
+
 function flushPersist() {
   if (!persistBuffer.name) return;
   try {
@@ -150,12 +326,6 @@ function flushPersist() {
     /* quota */
   }
 }
-if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushPersist);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") flushPersist();
-  });
-}
 
 export const useDesk = create<DeskState>()(
   persist(
@@ -163,13 +333,22 @@ export const useDesk = create<DeskState>()(
       ...initial(),
       hydrateHistories: () => {
         const st = get();
-        const quotes = mergeQuotes(st.quotes);
-        const candles = ensureCandles(st.candles, quotes, st.clock);
-        const histories =
-          Object.keys(st.histories).length >= UNIVERSE.length
-            ? st.histories
-            : seedHistories(quotes);
-        set({ quotes, candles, histories });
+        let quotes = mergeQuotes(st.quotes);
+        let auction = st.auction ?? rollAuctionBook(st.clock);
+        if (sessionPhase(st.clock) === "open-input" && Object.keys(auction.target || {}).length === 0) {
+          const started = beginAuctionSession(quotes, auction, "open");
+          quotes = started.quotes;
+          auction = started.book;
+        }
+        const restored = loadCandleBook();
+        const candles = adoptFormingBars(
+          ensureCandles(restored ?? st.candles, quotes, st.clock),
+          st.clock,
+        );
+        repairQuotesFromCandles(quotes, candles);
+        const histories = mergeHistories(st.histories, quotes);
+        set({ quotes, candles, histories, auction });
+        saveCandleBook(candles);
       },
       select: (symbol) => set({ selected: symbol }),
       setSpeed: (s) => set({ speed: s }),
@@ -179,59 +358,121 @@ export const useDesk = create<DeskState>()(
         const st = get();
         if (st.won || st.busted || st.speed === 0) return;
         let clock = advanceClock(st.clock, 1);
-        if (!isSession(clock)) clock = nextMarketOpen(clock);
+        if (!isClockOn(clock)) clock = nextMarketOpen(clock);
         const p = hkParts(clock);
-        let quotes = st.quotes;
-        if (p.hour === 9 && p.minute === 30) {
-          quotes = rollDay(quotes);
-        }
         const dayKey = hkDayKey(clock);
-        let extreme = st.extreme ?? null;
-        if (!extreme || extreme.dayKey !== dayKey) {
-          extreme = rollExtremeEvent(clock);
-        }
-        const stepped = stepMarket(quotes, st.histories, clock, extreme);
-        if (stepped.extremeFired && extreme.event) {
-          extreme = { ...extreme, event: { ...extreme.event, fired: true } };
-        }
+        let quotes = st.quotes;
+        let auction = st.auction ?? rollAuctionBook(clock);
+        let pending = st.pending;
+        let candles = st.candles ?? seedCandles(quotes, clock);
         let cash = st.cash;
         let positions = st.positions;
-        const liquidated: string[] = [];
-        if (positions.length) {
-          const kept = positions.filter((p) => {
-            const q = stepped.quotes[p.symbol]!;
-            const inst = BY_SYMBOL[p.symbol]!;
-            const mtm = markPrice(q, p.qty);
-            const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
-            const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
-            if (p.leverage > 1 && pnl <= -margin * 0.8) {
-              cash += Math.max(0, margin + pnl);
-              liquidated.push(p.symbol);
-              return false;
-            }
-            return true;
-          });
-          if (liquidated.length) positions = kept;
+        let fills = st.fills;
+        let news = st.news;
+        let toast = st.toast;
+        const extraNews: NewsItem[] = [];
+
+        if (auction.dayKey !== dayKey) {
+          auction = rollAuctionBook(clock);
         }
-        const eq = equityOf(cash, positions, stepped.quotes);
-        const news = stepped.news
-          ? [stepped.news, ...st.news].slice(0, 24)
-          : st.news;
-        const extremeToast = stepped.news?.extreme ? stepped.news.text : null;
+
+        if (p.hour === 9 && p.minute === 0) {
+          quotes = rollDay(quotes);
+          auction = rollAuctionBook(clock);
+          const started = beginAuctionSession(quotes, auction, "open");
+          quotes = started.quotes;
+          auction = started.book;
+        } else if (p.hour === 16 && p.minute === 0 && !auction.closeDone) {
+          const started = beginAuctionSession(quotes, auction, "close");
+          quotes = started.quotes;
+          auction = started.book;
+        }
+
+        const morningMatch = p.hour === 9 && p.minute === 20 && !auction.morningDone;
+        const closeMatch =
+          !auction.closeDone &&
+          p.hour === 16 &&
+          p.minute >= 8 &&
+          p.minute <= 10 &&
+          clock >= auction.closeAt;
+
+        if (morningMatch || closeMatch) {
+          const kind = morningMatch ? "open" : "close";
+          quotes = matchAuction(quotes, kind);
+          candles = applyTickCandles(candles, quotes, clock, true);
+          if (morningMatch) auction = { ...auction, morningDone: true };
+          else auction = { ...auction, closeDone: true };
+          extraNews.push(auctionGapNews(quotes, clock, kind));
+          if (pending) {
+            const filled = fillPending(pending, quotes, cash, positions, fills, clock);
+            if (filled) {
+              cash = filled.cash;
+              positions = filled.positions;
+              fills = filled.fills;
+              toast = filled.toast;
+              pending = null;
+            }
+          }
+          if (closeMatch) {
+            clock = nextMarketOpen(clock);
+            quotes = rollDay(quotes);
+            auction = rollAuctionBook(clock);
+            const started = beginAuctionSession(quotes, auction, "open");
+            quotes = started.quotes;
+            auction = started.book;
+          }
+        } else if (isContinuous(clock)) {
+          let extreme = st.extreme ?? null;
+          if (!extreme || extreme.dayKey !== dayKey) {
+            extreme = rollExtremeEvent(clock);
+          }
+          const stepped = stepMarket(quotes, st.histories, clock, extreme);
+          quotes = stepped.quotes;
+          candles = applyTickCandles(candles, quotes, clock, false);
+          if (stepped.extremeFired && extreme.event) {
+            extreme = { ...extreme, event: { ...extreme.event, fired: true } };
+          }
+          if (stepped.news) extraNews.push(stepped.news);
+          const liq = liquidateIfNeeded(cash, positions, quotes);
+          cash = liq.cash;
+          positions = liq.positions;
+          if (liq.toast) toast = liq.toast;
+          const eq = equityOf(cash, positions, quotes);
+          set({
+            clock,
+            quotes,
+            histories: stepped.histories,
+            candles,
+            cash,
+            positions,
+            fills,
+            news: extraNews.length ? [...extraNews, ...news].slice(0, 24) : news,
+            extreme,
+            auction,
+            pending,
+            won: eq >= GOAL_EQUITY,
+            busted: eq <= 0,
+            toast: stepped.news?.extreme ? stepped.news.text : toast,
+          });
+          return;
+        } else if (isAuctionPhaseWalk(clock, auction)) {
+          quotes = stepAuctionIep(quotes, auction);
+        }
+
+        const eq = equityOf(cash, positions, quotes);
         set({
           clock,
-          quotes: stepped.quotes,
-          histories: stepped.histories,
-          candles: applyTickCandles(st.candles ?? seedCandles(stepped.quotes, clock), stepped.quotes, clock),
+          quotes,
+          candles,
           cash,
           positions,
-          news,
-          extreme,
+          fills,
+          news: extraNews.length ? [...extraNews, ...news].slice(0, 24) : news,
+          auction,
+          pending,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
-          toast: liquidated.length
-            ? `${liquidated.map((s) => BY_SYMBOL[s]?.name ?? s).join("、")} 已強制平倉`
-            : extremeToast ?? st.toast,
+          toast,
         });
       },
       place: (side, qty, leverage) => {
@@ -241,6 +482,19 @@ export const useDesk = create<DeskState>()(
         const inst = BY_SYMBOL[st.selected];
         if (!inst) return "找不到股票";
         const q = st.quotes[st.selected]!;
+        if (usesHkAuction(inst) && !isContinuous(st.clock)) {
+          if (!canEnterAuctionOrders(st.clock)) {
+            const ph = sessionPhase(st.clock);
+            if (ph === "open-cool") return "冷靜期（09:20–09:30）暫停輸入買賣盤";
+            if (ph === "close-random") return "隨機對盤期間暫停輸入買賣盤";
+            return "非持續交易時段，未能即時成交";
+          }
+          set({
+            pending: { symbol: st.selected, side, qty, leverage: Math.min(Math.max(1, leverage), inst.maxLeverage) },
+            toast: `已掛競價盤，待對盤成交：${inst.name}`,
+          });
+          return null;
+        }
         const price = side === "buy" ? q.ask : q.bid;
         const signed = side === "buy" ? qty : -qty;
         const lev = Math.min(Math.max(1, leverage), inst.maxLeverage);
@@ -259,7 +513,7 @@ export const useDesk = create<DeskState>()(
             (notional(st.selected, closeQty, existing.avgPrice) / existing.leverage);
           cash += marginRelease + pnl;
           const remain = existing.qty + closeSigned;
-          if (remain === 0) positions.splice(idx, 1);
+          if (Math.abs(remain) < 1e-12) positions.splice(idx, 1);
           else positions[idx] = { ...existing, qty: remain };
           const leftover = qty - closeQty;
           const fills = [
@@ -274,7 +528,7 @@ export const useDesk = create<DeskState>()(
             },
             ...st.fills,
           ].slice(0, 80);
-          if (leftover <= 0) {
+          if (leftover <= 1e-12) {
             set({ cash, positions, fills });
             return null;
           }
@@ -318,8 +572,30 @@ export const useDesk = create<DeskState>()(
         const st = get();
         const p = st.positions.find((x) => x.symbol === symbol);
         if (!p) return;
+        const inst = BY_SYMBOL[symbol];
+        if (inst && usesHkAuction(inst) && !isContinuous(st.clock)) {
+          if (!canEnterAuctionOrders(st.clock)) {
+            set({
+              toast:
+                sessionPhase(st.clock) === "open-cool"
+                  ? "冷靜期暫停平倉，待 09:30 開市"
+                  : "隨機對盤期間暫停平倉",
+            });
+            return;
+          }
+          set({
+            pending: {
+              symbol,
+              side: p.qty > 0 ? "sell" : "buy",
+              qty: Math.abs(p.qty),
+              leverage: p.leverage,
+            },
+            toast: `已掛競價平倉盤，待對盤：${inst.name}`,
+          });
+          return;
+        }
         const q = st.quotes[symbol]!;
-        const inst = BY_SYMBOL[symbol]!;
+        if (!inst) return;
         const exit = p.qty > 0 ? q.bid : q.ask;
         const pnl = (exit - p.avgPrice) * p.qty * inst.pointValue;
         const margin = notional(symbol, p.qty, p.avgPrice) / p.leverage;
@@ -342,7 +618,16 @@ export const useDesk = create<DeskState>()(
           fills,
         });
       },
-      reset: () => set(initial()),
+      reset: () => {
+        set(initial());
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.removeItem(CANDLE_KEY);
+          } catch {
+            /* ignore */
+          }
+        }
+      },
     }),
     {
       name: "hk-paper-desk-v2",
@@ -350,6 +635,7 @@ export const useDesk = create<DeskState>()(
         cash: s.cash,
         clock: s.clock,
         quotes: s.quotes,
+        histories: s.histories,
         positions: s.positions,
         fills: s.fills,
         news: s.news,
@@ -357,6 +643,8 @@ export const useDesk = create<DeskState>()(
         won: s.won,
         busted: s.busted,
         extreme: s.extreme,
+        auction: s.auction,
+        pending: s.pending,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({
@@ -374,6 +662,7 @@ export const useDesk = create<DeskState>()(
           persistTimer = setTimeout(() => {
             persistTimer = null;
             flushPersist();
+            saveCandleBook(useDesk.getState().candles);
           }, 2000);
         },
         removeItem: (name) => {
@@ -387,4 +676,19 @@ export const useDesk = create<DeskState>()(
     },
   ),
 );
+
+if (typeof window !== "undefined") {
+  const settleOnLeave = () => {
+    flushPersist();
+    saveCandleBook(useDesk.getState().candles);
+  };
+  window.addEventListener("pagehide", settleOnLeave);
+  window.addEventListener("beforeunload", settleOnLeave);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      flushPersist();
+      saveCandleBook(useDesk.getState().candles);
+    }
+  });
+}
 
