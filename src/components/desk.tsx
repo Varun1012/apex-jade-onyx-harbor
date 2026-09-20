@@ -12,12 +12,41 @@ import { Input } from "@/components/ui/input";
 import { CandleChart } from "@/components/candle-chart";
 import { Sparkline } from "@/components/sparkline";
 import { formatHkd, formatPct, formatPrice, formatQty, formatSimTime } from "@/lib/format";
-import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, UNIVERSE } from "@/lib/market/universe";
+import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, listedInstruments } from "@/lib/market/universe";
 import { advise } from "@/lib/market/ta";
 import type { Tf } from "@/lib/market/candles";
 import { createAmbient, type AmbientHandle } from "@/lib/ambient";
 import { equityOf, useDesk, type Speed } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+function px(n: number, symbol: string) {
+  return formatPrice(n, BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD");
+}
+
+function defaultQty(symbol: string) {
+  return BY_SYMBOL[symbol]?.kind === "crypto" ? "0.01" : "1";
+}
+
+function sanitizeQty(raw: string, symbol: string) {
+  if (BY_SYMBOL[symbol]?.kind === "crypto") {
+    const cleaned = raw.replace(/[^\d.]/g, "");
+    const dot = cleaned.indexOf(".");
+    if (dot === -1) return cleaned;
+    return cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, "").slice(0, 6);
+  }
+  return raw.replace(/[^\d]/g, "");
+}
+
+function parseQty(raw: string, symbol: string): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const inst = BY_SYMBOL[symbol];
+  if (inst?.kind === "crypto") {
+    const step = inst.lot || 0.001;
+    return Math.round(n / step) * step;
+  }
+  return Math.floor(n);
+}
 
 function Signed({ n, children }: { n: number; children: ReactNode }) {
   const cls = n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted-foreground";
@@ -230,7 +259,7 @@ function Fills() {
                 {f.side === "buy" ? "買入" : "賣出"} {f.symbol}
               </span>
               <span className="tabular-nums text-muted-foreground">
-                {formatQty(f.qty)} @ {formatPrice(f.price)}
+                {formatQty(f.qty)} @ {px(f.price, f.symbol)}
                 {f.leverage > 1 ? ` ×${f.leverage}` : ""}
               </span>
             </li>
@@ -370,7 +399,7 @@ function Watchlist() {
   const listRef = useRef<HTMLUListElement>(null);
   const rows = useMemo(() => {
     const n = q.trim();
-    return UNIVERSE.filter(
+    return listedInstruments().filter(
       (i) => !n || i.symbol.includes(n) || i.name.includes(n) || i.sector.includes(n),
     );
   }, [q]);
@@ -388,7 +417,7 @@ function Watchlist() {
           spellCheck={false}
         />
       </div>
-      <div className="mt-2 hidden grid-cols-[72px_1fr_88px_72px] px-4 text-[11px] text-muted-foreground sm:grid sm:px-5">
+      <div className="mt-2 hidden grid-cols-[72px_1fr_104px_72px] px-4 text-[11px] text-muted-foreground sm:grid sm:px-5">
         <span>代號</span>
         <span>名稱</span>
         <span className="text-right">賣 / 買</span>
@@ -431,9 +460,8 @@ const WatchRow = memo(function WatchRow({
         type="button"
         onClick={() => select(symbol)}
         className={cn(
-          "grid w-full grid-cols-[72px_1fr_auto] items-center gap-2 px-4 py-2.5 text-left sm:grid-cols-[72px_1fr_88px_72px] sm:px-5",
+          "grid w-full grid-cols-[72px_1fr_auto] items-center gap-2 px-4 py-2.5 text-left sm:grid-cols-[72px_1fr_104px_72px] sm:px-5",
           selected ? "bg-secondary" : "hover:bg-secondary/60",
-          Math.abs(chg) >= 0.3 && (chg > 0 ? "bg-up-soft" : "bg-down-soft"),
         )}
       >
         <span className="font-mono text-sm tabular-nums">{symbol}</span>
@@ -441,11 +469,10 @@ const WatchRow = memo(function WatchRow({
           <span className="block truncate text-sm">{name}</span>
           <span className="text-[11px] text-muted-foreground">
             {sector}
-            {Math.abs(chg) >= 0.3 ? (chg > 0 ? " · 暴升" : " · 暴跌") : ""}
           </span>
         </span>
         <span className="text-right">
-          <span className="block font-mono text-sm tabular-nums">{formatPrice(qt.last)}</span>
+          <span className="block font-mono text-sm tabular-nums">{px(qt.last, symbol)}</span>
           <Signed n={chg}>
             <span className="text-[11px]">{formatPct(chg)}</span>
           </Signed>
@@ -489,6 +516,7 @@ function Ticket() {
           </button>
         ))}
       </div>
+      <CandleOhlc symbol={selected} tf={tf} />
       <div className="mt-2">
         <CandleChart symbol={selected} tf={tf} />
       </div>
@@ -516,16 +544,54 @@ function TicketHead({ symbol }: { symbol: string }) {
           <h2 className="text-xl font-medium tracking-tight">{inst.name}</h2>
         </div>
         <Badge variant={inst.kind === "index" ? "outline" : "default"}>
-          {inst.kind === "index" ? "指數差價 · 每點 HK$1" : inst.kind === "etf" ? "ETF" : "正股 · 支援碎股"}
+          {inst.kind === "index"
+            ? "指數差價 · 每點 HK$1"
+            : inst.kind === "etf"
+              ? "ETF"
+              : inst.kind === "crypto"
+                ? "加密貨幣 · USD · 約 7.8 兌港元"
+                : "正股 · 支援碎股"}
         </Badge>
       </div>
       <div className="mt-3 flex items-end gap-4">
-        <p className="font-mono text-3xl tabular-nums tracking-tight">{formatPrice(last)}</p>
+        <p className="font-mono text-3xl tabular-nums tracking-tight">{px(last, symbol)}</p>
         <Signed n={chg}>
           <span className="text-sm">{formatPct(chg)}</span>
         </Signed>
       </div>
+      <p className="mt-1 text-[11px] text-muted-foreground" data-prev-close>
+        收市 {px(prev, symbol)}
+      </p>
     </>
+  );
+}
+
+function CandleOhlc({ symbol, tf }: { symbol: string; tf: Tf }) {
+  const live = useDesk((s) => s.quotes[symbol]?.last);
+  const bar = useDesk((s) => {
+    const list = s.candles[symbol]?.[tf];
+    return list?.[list.length - 1] ?? null;
+  });
+  if (!bar || live == null) return null;
+  const o = bar.o;
+  const h = Math.max(bar.h, live);
+  const l = Math.min(bar.l, live);
+  const c = live;
+  const cell = (lab: string, v: number, id?: string) => (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{lab}</p>
+      <p className="font-mono text-sm tabular-nums" data-ohlc-part={id}>
+        {px(v, symbol)}
+      </p>
+    </div>
+  );
+  return (
+    <div className="mt-2 grid grid-cols-4 gap-2" data-ohlc={`${o},${h},${l},${c}`}>
+      {cell("開", o, "o")}
+      {cell("高", h, "h")}
+      {cell("低", l, "l")}
+      {cell("收", c, "c")}
+    </div>
   );
 }
 
@@ -539,7 +605,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
   const advice = useMemo(() => {
     const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
-    return advise(series, live);
+    return advise(series, live, BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD");
   }, [symbol, tf, barT, len, live, lastVol]);
 
   let posR: number | null = null;
@@ -569,7 +635,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
             {advice.longRR != null ? `${advice.longRR.toFixed(1)} : 1` : "—"}
           </p>
           {advice.resist != null ? (
-            <p className="text-[11px] text-muted-foreground">目標 {formatPrice(advice.resist)}</p>
+            <p className="text-[11px] text-muted-foreground">目標 {px(advice.resist, symbol)}</p>
           ) : null}
         </div>
         <div className={cn("rounded-md px-2.5 py-2", !longBetter ? "bg-down-soft" : "bg-secondary")}>
@@ -578,7 +644,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
             {advice.shortRR != null ? `${advice.shortRR.toFixed(1)} : 1` : "—"}
           </p>
           {advice.support != null ? (
-            <p className="text-[11px] text-muted-foreground">目標 {formatPrice(advice.support)}</p>
+            <p className="text-[11px] text-muted-foreground">目標 {px(advice.support, symbol)}</p>
           ) : null}
         </div>
       </div>
@@ -618,11 +684,11 @@ function BidAsk({ symbol }: { symbol: string }) {
     <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
       <div className="rounded-lg bg-down-soft px-3 py-2">
         <p className="text-[11px] text-down">買入價 Bid（賣出成交）</p>
-        <p className="font-mono text-lg tabular-nums text-down">{formatPrice(bid)}</p>
+        <p className="font-mono text-lg tabular-nums text-down">{px(bid, symbol)}</p>
       </div>
       <div className="rounded-lg bg-up-soft px-3 py-2">
         <p className="text-[11px] text-up">賣出價 Ask（買入成交）</p>
-        <p className="font-mono text-lg tabular-nums text-up">{formatPrice(ask)}</p>
+        <p className="font-mono text-lg tabular-nums text-up">{px(ask, symbol)}</p>
       </div>
     </div>
   );
@@ -637,21 +703,24 @@ const QtyField = memo(function QtyField({
   qtyRef: { current: string };
   onTyped: (v: string) => void;
 }) {
-  const [qty, setQty] = useState("1");
+  const start = defaultQty(resetKey);
+  const [qty, setQty] = useState(start);
   useEffect(() => {
-    setQty("1");
-    qtyRef.current = "1";
-    onTyped("1");
+    const next = defaultQty(resetKey);
+    setQty(next);
+    qtyRef.current = next;
+    onTyped(next);
   }, [resetKey, qtyRef, onTyped]);
+  const crypto = BY_SYMBOL[resetKey]?.kind === "crypto";
   return (
     <Input
       className="mt-1"
-      inputMode="numeric"
+      inputMode={crypto ? "decimal" : "numeric"}
       value={qty}
       autoComplete="off"
       spellCheck={false}
       onChange={(e) => {
-        const v = e.target.value.replace(/[^\d]/g, "");
+        const v = sanitizeQty(e.target.value, resetKey);
         setQty(v);
         qtyRef.current = v;
         onTyped(v);
@@ -666,27 +735,28 @@ function OrderTicket({ symbol }: { symbol: string }) {
   const cash = useDesk((s) => s.cash);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
-  const qtyRef = useRef("1");
-  const [qtyView, setQtyView] = useState("1");
+  const qtyRef = useRef(defaultQty(symbol));
+  const [qtyView, setQtyView] = useState(defaultQty(symbol));
   const [lev, setLev] = useState(1);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     setLev(1);
     setErr(null);
-    qtyRef.current = "1";
-    setQtyView("1");
+    const next = defaultQty(symbol);
+    qtyRef.current = next;
+    setQtyView(next);
   }, [symbol, inst.kind]);
 
   if (ask == null || bid == null) return null;
-  const n = Math.max(0, Math.floor(Number(qtyView) || 0));
+  const n = parseQty(qtyView, symbol);
   const levClamped = Math.min(lev, inst.maxLeverage);
   const buyNotional = n * ask * inst.pointValue;
   const sellNotional = n * bid * inst.pointValue;
   const buyMargin = buyNotional / levClamped;
 
   function submit(side: "buy" | "sell") {
-    const qty = Math.max(0, Math.floor(Number(qtyRef.current) || 0));
+    const qty = parseQty(qtyRef.current, symbol);
     const msg = place(side, qty, levClamped);
     setErr(msg);
   }
@@ -694,7 +764,7 @@ function OrderTicket({ symbol }: { symbol: string }) {
   return (
     <div className="mt-4 grid gap-3">
       <label className="text-xs text-muted-foreground">
-        數量{inst.kind === "index" ? "（口）" : "（股）"}
+        數量{inst.kind === "index" ? "（口）" : inst.kind === "crypto" ? "（BTC）" : "（股）"}
         <QtyField resetKey={symbol} qtyRef={qtyRef} onTyped={setQtyView} />
       </label>
       <div>
@@ -724,15 +794,16 @@ function OrderTicket({ symbol }: { symbol: string }) {
       {err ? <p className="text-sm text-up">{err}</p> : null}
       <div className="grid grid-cols-2 gap-2">
         <Button variant="buy" onClick={() => submit("buy")}>
-          買入 @ {formatPrice(ask)}
+          買入 @ {px(ask, symbol)}
         </Button>
         <Button variant="sell" onClick={() => submit("sell")}>
-          賣出 @ {formatPrice(bid)}
+          賣出 @ {px(bid, symbol)}
         </Button>
       </div>
       <p className="text-[11px] text-muted-foreground">
         賣出名義 {formatHkd(sellNotional)}
         {levClamped > 1 ? ` · 保證金佔名義 1/${levClamped}` : ""}
+        {inst.kind === "crypto" ? " · 報價美元、按約 7.8 兌港元入帳" : ""}
       </p>
     </div>
   );
@@ -820,8 +891,8 @@ const HoldingRow = memo(function HoldingRow({
             <span className="font-mono text-muted-foreground">{symbol}</span>
           </p>
           <p className="text-[11px] text-muted-foreground">
-            {qty > 0 ? "好倉" : "淡倉"} {formatQty(Math.abs(qty))} · 均價 {formatPrice(avgPrice)}
-            {leverage > 1 ? ` · ${leverage}x` : ""} · 市價 {formatPrice(mtm)}
+            {qty > 0 ? "好倉" : "淡倉"} {formatQty(Math.abs(qty))} · 均價 {px(avgPrice, symbol)}
+            {leverage > 1 ? ` · ${leverage}x` : ""} · 市價 {px(mtm, symbol)}
           </p>
         </button>
         <button

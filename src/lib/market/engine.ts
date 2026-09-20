@@ -1,8 +1,11 @@
 import { hkDate, hkParts } from "../format";
 import {
+  BOYAA_SYMBOL,
+  BTC_SYMBOL,
   BY_SYMBOL,
   NEWS_POOL,
   UNIVERSE,
+  fundamentalScore,
   roundTick,
   tickSize,
   type Instrument,
@@ -22,6 +25,24 @@ export type NewsItem = {
   id: string;
   text: string;
   at: number;
+  extreme?: boolean;
+  symbol?: string;
+  sign?: 1 | -1;
+};
+
+export type ExtremeMove = {
+  symbol: string;
+  name: string;
+  sign: 1 | -1;
+  mag: number;
+  fireAt: number;
+  fired: boolean;
+  text: string;
+};
+
+export type ExtremeSchedule = {
+  dayKey: string;
+  event: ExtremeMove | null;
 };
 
 function gauss(): number {
@@ -35,14 +56,15 @@ function gauss(): number {
 function spreadTicks(inst: Instrument, last: number): number {
   if (inst.kind === "index") return 2;
   if (inst.kind === "etf") return 1;
+  if (inst.kind === "crypto") return last >= 10_000 ? 5 : 2;
   if (last >= 200) return 2;
   return 1;
 }
 
 export function applySpread(inst: Instrument, last: number): Pick<Quote, "bid" | "ask" | "last"> {
-  const t = inst.kind === "index" ? 1 : tickSize(last);
+  const t = inst.kind === "index" ? 1 : tickSize(last, inst.kind);
   const s = spreadTicks(inst, last);
-  const lastR = inst.kind === "index" ? Math.round(last) : roundTick(last);
+  const lastR = inst.kind === "index" ? Math.round(last) : roundTick(last, inst.kind);
   const bid = lastR - t * s;
   const ask = lastR + t * s;
   return { last: lastR, bid: Math.max(t, bid), ask };
@@ -104,23 +126,166 @@ export function advanceClock(t: number, minutes: number): number {
   return cur;
 }
 
+export function hkDayKey(t: number): string {
+  const p = hkParts(t);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}`;
+}
+
+function sessionSlots(t: number): number[] {
+  const p = hkParts(t);
+  const slots: number[] = [];
+  for (let m = 9 * 60 + 30; m < 12 * 60; m++) {
+    slots.push(hkDate(p.year, p.month, p.day, Math.floor(m / 60), m % 60));
+  }
+  for (let m = 13 * 60; m < 16 * 60; m++) {
+    slots.push(hkDate(p.year, p.month, p.day, Math.floor(m / 60), m % 60));
+  }
+  return slots;
+}
+
+const DAILY_EXTREME_CHANCE = 0.34;
+
+const SURGE_REASONS = [
+  "突然傳出被收購／重大合作，短線資金瘋狂追貨。",
+  "停牌後復牌裂口高開，市場交投極度活躍。",
+  "業績爆冷遠勝預期，買盤瞬間湧入。",
+  "傳出戰略投資者入股，股價突然暴升。",
+];
+
+const CRASH_REASONS = [
+  "突然傳出不利消息，沽盤湧現。",
+  "大股東減持／盈利警告，股價裂口低開。",
+  "監管傳聞發酵，短線資金恐慌出逃。",
+  "流動性突然枯竭，股價無量暴跌。",
+];
+
+const CRYPTO_SURGE = [
+  "巨鯨突然掃貨，現貨溢價急升。",
+  "市場傳出大型機構增持，空頭回補引爆急升。",
+  "鏈上活躍地址爆量，短線資金瘋狂追入。",
+];
+
+const CRYPTO_CRASH = [
+  "槓桿多頭遭連環清算，價格無量暴跌。",
+  "巨鯨向交易所大額轉入，拋壓湧現。",
+  "風險情緒急凍，加密資產同步出逃。",
+];
+
+/** ~1 in 3 trading days. Weak-fundamental names dominate; blue chips almost never. */
+export function rollExtremeEvent(clock: number): ExtremeSchedule {
+  const dayKey = hkDayKey(clock);
+  if (Math.random() >= DAILY_EXTREME_CHANCE) {
+    return { dayKey, event: null };
+  }
+
+  const pool = UNIVERSE.filter((i) => i.kind === "stock" || i.kind === "crypto");
+  const weights = pool.map((i) => {
+    const q = fundamentalScore(i.symbol);
+    return Math.pow(Math.max(0.02, 1 - q), 3);
+  });
+  const total = weights.reduce((s, w) => s + w, 0);
+  let r = Math.random() * total;
+  let inst = pool[0]!;
+  for (let i = 0; i < pool.length; i++) {
+    r -= weights[i]!;
+    if (r <= 0) {
+      inst = pool[i]!;
+      break;
+    }
+  }
+
+  const quality = fundamentalScore(inst.symbol);
+  const sign: 1 | -1 = Math.random() < 0.48 ? 1 : -1;
+  const mag = 0.105 + Math.random() * (0.1 + (1 - quality) * 0.4);
+  const slots = sessionSlots(clock).filter((s) => s > clock);
+  if (slots.length < 8) {
+    return { dayKey, event: null };
+  }
+  const lo = 0;
+  const hi = slots.length;
+  const fireAt = slots[lo + Math.floor(Math.random() * (hi - lo))]!;
+  const reasons =
+    inst.kind === "crypto"
+      ? sign > 0
+        ? CRYPTO_SURGE
+        : CRYPTO_CRASH
+      : sign > 0
+        ? SURGE_REASONS
+        : CRASH_REASONS;
+  const reason = reasons[Math.floor(Math.random() * reasons.length)]!;
+  const pct = Math.round(mag * 100);
+  const verb = sign > 0 ? "暴升" : "暴跌";
+  const text = `${inst.name}（${inst.symbol}）${verb}逾 ${pct}%。${reason}`;
+
+  return {
+    dayKey,
+    event: {
+      symbol: inst.symbol,
+      name: inst.name,
+      sign,
+      mag,
+      fireAt,
+      fired: false,
+      text,
+    },
+  };
+}
+
 export type TickResult = {
   quotes: Record<string, Quote>;
   news: NewsItem | null;
   histories: Record<string, number[]>;
+  extremeFired: boolean;
 };
+
+function writeQuote(
+  next: Record<string, Quote>,
+  nextHist: Record<string, number[]>,
+  histories: Record<string, number[]>,
+  inst: Instrument,
+  quotes: Record<string, Quote>,
+  raw: number,
+): number {
+  const q = quotes[inst.symbol]!;
+  const sp = applySpread(inst, raw);
+  next[inst.symbol] = {
+    ...sp,
+    open: q.open,
+    high: Math.max(q.high, sp.last),
+    low: Math.min(q.low, sp.last),
+    prevClose: q.prevClose,
+  };
+  const h = histories[inst.symbol];
+  if (h) {
+    h.push(sp.last);
+    if (h.length > 90) h.splice(0, h.length - 90);
+    nextHist[inst.symbol] = h;
+  } else {
+    nextHist[inst.symbol] = [sp.last];
+  }
+  return sp.last;
+}
 
 export function stepMarket(
   quotes: Record<string, Quote>,
   histories: Record<string, number[]>,
   clock: number,
+  extreme?: ExtremeSchedule | null,
 ): TickResult {
   const shock = gauss() * 0.0018;
   let news: NewsItem | null = null;
   let focus: string | undefined;
   let newsBias = 0;
+  let extremeFired = false;
 
-  if (Math.random() < 0.035) {
+  const due =
+    extreme?.event &&
+    !extreme.event.fired &&
+    clock >= extreme.event.fireAt &&
+    Boolean(extreme.event.symbol);
+
+  if (!due && Math.random() < 0.035) {
     const n = NEWS_POOL[Math.floor(Math.random() * NEWS_POOL.length)]!;
     news = { id: `${clock}-${Math.random().toString(36).slice(2, 7)}`, text: n.text, at: clock };
     newsBias = n.bias * (0.6 + Math.random() * 0.8);
@@ -133,50 +298,86 @@ export function stepMarket(
   const hsiInst = BY_SYMBOL.HSI!;
   let hsiLast = quotes.HSI?.last ?? hsiInst.start;
 
+  const btcInst = BY_SYMBOL[BTC_SYMBOL];
+  let btcReturn = 0;
+  if (btcInst && quotes[BTC_SYMBOL]) {
+    const q = quotes[BTC_SYMBOL]!;
+    let raw: number;
+    if (due && extreme!.event!.symbol === BTC_SYMBOL) {
+      raw = q.last * (1 + extreme!.event!.sign * extreme!.event!.mag);
+      extremeFired = true;
+      news = {
+        id: `${clock}-x${Math.random().toString(36).slice(2, 7)}`,
+        text: extreme!.event!.text,
+        at: clock,
+        extreme: true,
+        symbol: BTC_SYMBOL,
+        sign: extreme!.event!.sign,
+      };
+    } else {
+      const idio = gauss() * btcInst.vol * 0.22;
+      const anchor = q.prevClose > 0 ? q.prevClose : btcInst.start;
+      const meanRev = ((anchor - q.last) / anchor) * 0.003;
+      let jump = shock * 0.35 + idio + meanRev;
+      if (focus === BTC_SYMBOL) jump += newsBias * 0.05;
+      else if (focus === BOYAA_SYMBOL) jump += newsBias * 0.03;
+      else if (news) jump += newsBias * 0.008;
+      if (due && extreme!.event!.symbol === BOYAA_SYMBOL) {
+        jump += extreme!.event!.sign * extreme!.event!.mag * 0.35;
+      }
+      raw = q.last * (1 + jump);
+    }
+    btcReturn = raw / q.last - 1;
+    writeQuote(next, nextHist, histories, btcInst, quotes, raw);
+  }
+
   for (const inst of UNIVERSE) {
-    if (inst.symbol === "HSI") continue;
-    const q = quotes[inst.symbol]!;
-    const idio = gauss() * inst.vol * 0.18;
-    const meanRev = ((inst.start - q.last) / inst.start) * 0.004;
-    let jump = shock * inst.beta + idio + meanRev;
-    if (focus && inst.symbol === focus) jump += newsBias * 0.04;
-    else if (news) jump += newsBias * 0.01 * inst.beta;
-    const raw = q.last * (1 + jump);
-    const sp = applySpread(inst, raw);
-    const dayOpen = q.open;
-    next[inst.symbol] = {
-      ...sp,
-      open: dayOpen,
-      high: Math.max(q.high, sp.last),
-      low: Math.min(q.low, sp.last),
-      prevClose: q.prevClose,
-    };
-    const h = (nextHist[inst.symbol] ?? []).concat(sp.last);
-    nextHist[inst.symbol] = h.length > 90 ? h.slice(-90) : h;
+    if (inst.kind === "index" || inst.kind === "crypto") continue;
+    const q = quotes[inst.symbol];
+    if (!q) continue;
+    let raw: number;
+    if (due && inst.symbol === extreme!.event!.symbol) {
+      raw = q.last * (1 + extreme!.event!.sign * extreme!.event!.mag);
+      extremeFired = true;
+      news = {
+        id: `${clock}-x${Math.random().toString(36).slice(2, 7)}`,
+        text: extreme!.event!.text,
+        at: clock,
+        extreme: true,
+        symbol: inst.symbol,
+        sign: extreme!.event!.sign,
+      };
+    } else {
+      const idio = gauss() * inst.vol * 0.18;
+      const anchor = q.prevClose > 0 ? q.prevClose : inst.start;
+      const meanRev = ((anchor - q.last) / anchor) * 0.004;
+      let jump = shock * inst.beta + idio + meanRev;
+      if (focus && inst.symbol === focus) jump += newsBias * 0.04;
+      else if (news) jump += newsBias * 0.01 * inst.beta;
+      if (inst.symbol === BOYAA_SYMBOL) {
+        if (due && extreme!.event!.symbol === BTC_SYMBOL) {
+          jump += extreme!.event!.sign * extreme!.event!.mag * 0.45;
+        } else {
+          jump += btcReturn * 0.5;
+        }
+      }
+      raw = q.last * (1 + jump);
+    }
+    writeQuote(next, nextHist, histories, inst, quotes, raw);
   }
 
   const weighted = UNIVERSE.filter((i) => i.weight > 0);
   const base = weighted.reduce((s, i) => s + i.start * i.weight, 0);
   const now = weighted.reduce((s, i) => s + (next[i.symbol]?.last ?? i.start) * i.weight, 0);
   const implied = hsiInst.start * (now / base);
-  const hsiJump = news && !focus ? newsBias * 80 : gauss() * 12;
+  const hsiJump = news && !focus && !news?.extreme ? newsBias * 80 : gauss() * 12;
   hsiLast = implied * 0.85 + hsiLast * 0.15 + hsiJump;
-  const hsiSp = applySpread(hsiInst, hsiLast);
-  const hq = quotes.HSI!;
-  next.HSI = {
-    ...hsiSp,
-    open: hq.open,
-    high: Math.max(hq.high, hsiSp.last),
-    low: Math.min(hq.low, hsiSp.last),
-    prevClose: hq.prevClose,
-  };
-  const hh = (nextHist.HSI ?? []).concat(hsiSp.last);
-  nextHist.HSI = hh.length > 90 ? hh.slice(-90) : hh;
+  writeQuote(next, nextHist, histories, hsiInst, quotes, hsiLast);
 
   const etf = BY_SYMBOL["2800"]!;
   const etfRaw = next.HSI.last / 1000;
-  const etfSp = applySpread(etf, etfRaw);
   const eq = next["2800"]!;
+  const etfSp = applySpread(etf, etfRaw);
   next["2800"] = {
     ...etfSp,
     open: eq.open,
@@ -185,7 +386,7 @@ export function stepMarket(
     prevClose: eq.prevClose,
   };
 
-  return { quotes: next, news, histories: nextHist };
+  return { quotes: next, news, histories: nextHist, extremeFired };
 }
 
 export function rollDay(quotes: Record<string, Quote>): Record<string, Quote> {

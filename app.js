@@ -184,7 +184,7 @@
     for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { inst = pool[i]; break; } }
     const q = FUND[inst.s] ?? 0.5;
     const sign = Math.random() < 0.48 ? 1 : -1;
-    const mag = 0.305 + Math.random() * (0.1 + (1 - q) * 0.4);
+    const mag = 0.105 + Math.random() * (0.1 + (1 - q) * 0.4);
     const slots = [];
     for (let min of [10*60+5, 10*60+40, 11*60+12, 11*60+48, 13*60+20, 14*60+8, 14*60+55, 15*60+22]) {
       const ts = Date.parse(`${day}T${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}:00+08:00`);
@@ -1043,16 +1043,14 @@
       const qq = state.quotes[s];
       const inst = BY[s];
       const c = (qq.last - qq.prev) / qq.prev;
-      const gap = Math.abs(c) >= 0.3;
       const px = row.querySelector(".px");
       if (px) {
         px.className = "mono px " + (c >= 0 ? "up" : "down");
         px.innerHTML = fmtP(qq.last, inst) + "<br><small>" + fmtPct(c) + "</small>";
       }
       const name = row.querySelector(".name");
-      if (name) name.textContent = inst.n + (gap ? (c > 0 ? " · 暴升" : " · 暴跌") : "");
-      row.classList.toggle("gap-up", gap && c > 0);
-      row.classList.toggle("gap-down", gap && c < 0);
+      if (name) name.textContent = inst.n;
+      row.classList.remove("gap-up", "gap-down");
       row.classList.toggle("active", state.sel === s);
     });
     const inst = BY[state.sel], q = state.quotes[state.sel];
@@ -1237,9 +1235,8 @@
           <div class="list" id="list">${LIST.map((i) => {
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
-            const gap = Math.abs(c) >= 0.3;
             const hide = n && !i.s.includes(n) && !i.n.includes(n);
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${gap ? (c > 0 ? "gap-up" : "gap-down") : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${gap ? (c > 0 ? " · 暴升" : " · 暴跌") : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${fmtPct(c)}</small></span></button>`;
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
