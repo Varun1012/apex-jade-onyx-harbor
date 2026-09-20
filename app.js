@@ -479,18 +479,27 @@
         book[i.s][tf] = list.length >= 2 ? list : seeded[i.s][tf];
       }
     }
+    return book;
+  }
+  function adoptForming(book, clock) {
     for (const i of UNIVERSE) {
-      const last = quotes[i.s] && quotes[i.s].last;
-      if (!last) continue;
       for (const tf of ["5m", "15m", "1d"]) {
-        const c = book[i.s][tf].at(-1);
+        const arr = book[i.s] && book[i.s][tf];
+        const c = arr && arr.at(-1);
         if (!c) continue;
-        c.c = last;
-        c.h = Math.max(c.h, last);
-        c.l = Math.min(c.l, last);
+        c.t = bucketStart(clock, tf);
       }
     }
-    return book;
+  }
+  function repairQuotesFromCandles(quotes, book) {
+    for (const i of UNIVERSE) {
+      const q = quotes[i.s];
+      const d = book[i.s] && book[i.s]["1d"] && book[i.s]["1d"].at(-1);
+      if (!q || !d) continue;
+      q.o = d.o;
+      q.h = d.h;
+      q.l = d.l;
+    }
   }
 
   const state = fresh();
@@ -522,6 +531,8 @@
     }
   } catch (_) {}
   state.candles = expandCandles(savedCandles, state.quotes, state.clock);
+  adoptForming(state.candles, state.clock);
+  repairQuotesFromCandles(state.quotes, state.candles);
 
   function compactQuotes(quotes) {
     const out = {};
@@ -583,21 +594,13 @@
     }, 2000);
   }
   function settleClose() {
-    for (const i of UNIVERSE) {
-      const q = state.quotes[i.s];
-      q.prev = q.last;
-      q.o = q.last;
-      q.h = q.last;
-      q.l = q.last;
-    }
+    /* keep session open/high/low; only persist as-is */
   }
   if (typeof window !== "undefined") {
     window.addEventListener("pagehide", () => {
-      settleClose();
       persistNow();
     });
     window.addEventListener("beforeunload", () => {
-      settleClose();
       persistNow();
     });
     document.addEventListener("visibilitychange", () => {
@@ -988,6 +991,7 @@
     }
     const selPrev = document.getElementById("sel-prev");
     if (selPrev) selPrev.textContent = "收市 " + fmtP(q.prev);
+    paintOhlc();
     const cnv = document.getElementById("kline");
     if (cnv) scheduleChart();
     const cap = document.getElementById("k-cap");
@@ -1069,6 +1073,16 @@
       }
     }
   }
+  function paintOhlc() {
+    const bar = (state.candles[state.sel] && state.candles[state.sel][state.tf] || []).at(-1);
+    const q = state.quotes[state.sel];
+    if (!bar || !q) return;
+    const o = bar.o, h = Math.max(bar.h, q.last), l = Math.min(bar.l, q.last), c = q.last;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtP(v); };
+    set("ohlc-o", o); set("ohlc-h", h); set("ohlc-l", l); set("ohlc-c", c);
+    const wrap = document.getElementById("ohlc");
+    if (wrap) wrap.dataset.ohlc = [o, h, l, c].join(",");
+  }
   function kCaption() {
     const series = state.candles[state.sel][state.tf] || [];
     const shown = series.slice(-64);
@@ -1141,7 +1155,7 @@
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。離開再開，收市價同陰陽燭跟上次最後一盤，唔會重畫 K 線。</p>
+        <p class="rule">交易時段：星期一至五 09:30–16:00（午休 12:00–13:00 停市）。K 線按時段對齊：5 分鐘 / 15 分鐘 / 日線。加速只催市場，不會搶輸入或名單捲動。離開再開，當根開／高／低／收同整段陰陽燭原封保留。</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0434、中行" autocomplete="off" />
@@ -1158,6 +1172,11 @@
           <h2>${inst.n}</h2>
           <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
           <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}</p>
+          <div class="ohlc" id="ohlc" data-ohlc>${(() => {
+            const bar = series.at(-1);
+            const o = bar ? bar.o : q.last, h = bar ? Math.max(bar.h, q.last) : q.last, l = bar ? Math.min(bar.l, q.last) : q.last, c = q.last;
+            return `<span>開 <b class="mono" id="ohlc-o">${fmtP(o)}</b></span><span>高 <b class="mono" id="ohlc-h">${fmtP(h)}</b></span><span>低 <b class="mono" id="ohlc-l">${fmtP(l)}</b></span><span>收 <b class="mono" id="ohlc-c">${fmtP(c)}</b></span>`;
+          })()}</div>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
@@ -1205,6 +1224,7 @@
     if (cnv) drawChart(cnv, series);
     const cap = document.getElementById("k-cap");
     if (cap) cap.textContent = kCaption();
+    paintOhlc();
     paintAdvice();
     $.querySelectorAll("[data-s]").forEach((b) => {
       b.onclick = () => {

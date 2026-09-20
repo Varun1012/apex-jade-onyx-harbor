@@ -31,9 +31,10 @@ jobs:
           grep -q "data-pos-pnl" app.js
           grep -q "paintPositions" app.js
           grep -q "mergeQuotes" app.js
-          grep -q "settleClose" app.js
-          grep -q "quotes: compactQuotes" app.js
           grep -q "compactCandles" app.js
           grep -q "expandCandles" app.js
+          grep -q "adoptForming" app.js
+          grep -q "repairQuotesFromCandles" app.js
+          grep -q "data-ohlc" app.js
           node --check app.js
           echo "checks passed"
