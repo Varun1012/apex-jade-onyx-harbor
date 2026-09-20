@@ -80,11 +80,31 @@ function lastSessionBar(day: { year: number; month: number; day: number }, step:
   return hkDate(day.year, day.month, day.day, Math.floor(last / 60), last % 60);
 }
 
+function prevTradingParts(from: { year: number; month: number; day: number }) {
+  let d = hkDate(from.year, from.month, from.day, 9, 30) - 86_400_000;
+  for (let i = 0; i < 8; i++) {
+    const q = hkParts(d);
+    if (q.weekday >= 1 && q.weekday <= 5) return q;
+    d -= 86_400_000;
+  }
+  return hkParts(d);
+}
+
 export function bucketStart(clock: number, tf: Tf): number {
   const p = hkParts(clock);
-  if (tf === "1d") return hkDate(p.year, p.month, p.day, 9, 30);
-  const step = STEP_MIN[tf];
   const mins = p.hour * 60 + p.minute;
+  const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20;
+  if (tf === "1d") {
+    if (preOpen) {
+      const prev = prevTradingParts(p);
+      return hkDate(prev.year, prev.month, prev.day, 9, 30);
+    }
+    return hkDate(p.year, p.month, p.day, 9, 30);
+  }
+  const step = STEP_MIN[tf];
+  if (preOpen) {
+    return lastSessionBar(prevTradingParts(p), step);
+  }
   const snapped = Math.floor(mins / step) * step;
   const t = hkDate(p.year, p.month, p.day, Math.floor(snapped / 60), snapped % 60);
   if (inBarGrid(t, step)) return t;
@@ -95,16 +115,11 @@ export function bucketStart(clock: number, tf: Tf): number {
     return hkDate(p.year, p.month, p.day, 16, 0);
   }
   if (p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60) return lastSessionBar(p, step);
-  if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 && mins < 9 * 60 + 30) {
+  if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) {
     return hkDate(p.year, p.month, p.day, 9, 30);
   }
   if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60) {
-    let d = hkDate(p.year, p.month, p.day, 9, 30) - 86_400_000;
-    for (let i = 0; i < 6; i++) {
-      const q = hkParts(d);
-      if (q.weekday >= 1 && q.weekday <= 5) return lastSessionBar(q, step);
-      d -= 86_400_000;
-    }
+    return lastSessionBar(prevTradingParts(p), step);
   }
   return hkDate(p.year, p.month, p.day, 9, 30);
 }
@@ -281,6 +296,23 @@ export function alignCandleCloses(
   book: CandleBook,
   quotes: Record<string, Quote>,
 ): CandleBook {
+  return book;
+}
+
+export function dropPrematureOpenBars(book: CandleBook, clock: number): CandleBook {
+  const p = hkParts(clock);
+  const mins = p.hour * 60 + p.minute;
+  if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20)) return book;
+  const first = hkDate(p.year, p.month, p.day, 9, 30);
+  for (const inst of UNIVERSE) {
+    const slot = book[inst.symbol];
+    if (!slot) continue;
+    for (const tf of TFS) {
+      const list = slot[tf];
+      if (!list?.length) continue;
+      while (list.length && list[list.length - 1]!.t >= first) list.pop();
+    }
+  }
   return book;
 }
 

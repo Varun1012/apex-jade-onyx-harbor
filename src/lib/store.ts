@@ -31,6 +31,7 @@ import {
   adoptFormingBars,
   applyTickCandles,
   compactCandleBook,
+  dropPrematureOpenBars,
   ensureCandles,
   expandCandleBook,
   repairQuotesFromCandles,
@@ -478,8 +479,11 @@ export const useDesk = create<DeskState>()(
           auction = started.book;
         }
         const restored = loadCandleBook();
-        const candles = adoptFormingBars(
-          ensureCandles(restored ?? st.candles, quotes, st.clock),
+        const candles = dropPrematureOpenBars(
+          adoptFormingBars(
+            ensureCandles(restored ?? st.candles, quotes, st.clock),
+            st.clock,
+          ),
           st.clock,
         );
         repairQuotesFromCandles(quotes, candles);
@@ -501,7 +505,7 @@ export const useDesk = create<DeskState>()(
         let quotes = st.quotes;
         let auction = st.auction ?? rollAuctionBook(clock);
         let pending = st.pending;
-        let candles = st.candles ?? seedCandles(quotes, clock);
+        let candles = dropPrematureOpenBars(st.candles ?? seedCandles(quotes, clock), clock);
         let cash = st.cash;
         let positions = st.positions;
         let fills = st.fills;
@@ -624,7 +628,10 @@ export const useDesk = create<DeskState>()(
           return;
         } else if (isAuctionPhaseWalk(clock, auction)) {
           quotes = stepAuctionIep(quotes, auction, ctx);
-          candles = applyTickCandles(candles, quotes, clock, false, ctx.halted, true);
+          const ph = sessionPhase(clock);
+          if (ph === "close-input" || ph === "close-random") {
+            candles = applyTickCandles(candles, quotes, clock, false, ctx.halted, true);
+          }
         }
 
         const eq = equityOf(cash, positions, quotes);

@@ -284,11 +284,28 @@
     const last = 16 * 60 - step;
     return hkDate(p.year, p.month, p.day, Math.floor(last / 60), last % 60);
   }
+  function prevTradingParts(from) {
+    let d = hkDate(from.year, from.month, from.day, 9, 30) - 86400000;
+    for (let i = 0; i < 8; i++) {
+      const q = hkParts(d);
+      if (q.weekday >= 1 && q.weekday <= 5) return q;
+      d -= 86400000;
+    }
+    return hkParts(d);
+  }
   function bucketStart(clock, tf) {
     const p = hkParts(clock);
-    if (tf === "1d") return hkDate(p.year, p.month, p.day, 9, 30);
-    const step = tf === "5m" ? 5 : 15;
     const mins = p.hour * 60 + p.minute;
+    const preOpen = p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20;
+    if (tf === "1d") {
+      if (preOpen) {
+        const prev = prevTradingParts(p);
+        return hkDate(prev.year, prev.month, prev.day, 9, 30);
+      }
+      return hkDate(p.year, p.month, p.day, 9, 30);
+    }
+    const step = tf === "5m" ? 5 : 15;
+    if (preOpen) return lastSessionBar(prevTradingParts(p), step);
     const snapped = Math.floor(mins / step) * step;
     const t = hkDate(p.year, p.month, p.day, Math.floor(snapped / 60), snapped % 60);
     const sm = sessionMins(t);
@@ -300,16 +317,8 @@
       return hkDate(p.year, p.month, p.day, 16, 0);
     }
     if (p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60) return lastSessionBar(p, step);
-    if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 && mins < 9 * 60 + 30) {
+    if (p.weekday >= 1 && p.weekday <= 5 && mins >= 9 * 60 + 20 && mins < 9 * 60 + 30) {
       return hkDate(p.year, p.month, p.day, 9, 30);
-    }
-    if (p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60) {
-      let d = hkDate(p.year, p.month, p.day, 9, 30) - 86400000;
-      for (let i = 0; i < 6; i++) {
-        const q = hkParts(d);
-        if (q.weekday >= 1 && q.weekday <= 5) return lastSessionBar(q, step);
-        d -= 86400000;
-      }
     }
     return hkDate(p.year, p.month, p.day, 9, 30);
   }
@@ -700,6 +709,20 @@
     }
     return book;
   }
+  function dropPremature(book, clock) {
+    const p = hkParts(clock);
+    const mins = p.hour * 60 + p.minute;
+    if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 20)) return;
+    const first = hkDate(p.year, p.month, p.day, 9, 30);
+    for (const i of UNIVERSE) {
+      if (!book[i.s]) continue;
+      for (const tf of ["5m", "15m", "1d"]) {
+        const arr = book[i.s][tf];
+        if (!arr) continue;
+        while (arr.length && arr.at(-1).t >= first) arr.pop();
+      }
+    }
+  }
   function adoptForming(book, clock) {
     if (sessionPhase(clock) !== "continuous") return;
     for (const i of UNIVERSE) {
@@ -764,6 +787,7 @@
     beginAuc("open");
   }
   state.candles = expandCandles(savedCandles, state.quotes, state.clock);
+  dropPremature(state.candles, state.clock);
   adoptForming(state.candles, state.clock);
   repairQuotesFromCandles(state.quotes, state.candles);
 
@@ -1166,6 +1190,7 @@
     if (!isClockOn(state.clock)) state.clock = nextOpen(state.clock);
     const hp = hkParts(state.clock);
     const dk = dayKey(state.clock);
+    dropPremature(state.candles, state.clock);
     if (!state.auction || state.auction.day !== dk) state.auction = rollAuction(state.clock);
     if (hp.hour === 9 && hp.minute === 0) {
       openDay();
@@ -1193,11 +1218,13 @@
       const ph = sessionPhase(state.clock);
       if ((ph === "open-input" && !state.auction.am) || ((ph === "close-input" || ph === "close-random") && !state.auction.pm)) {
         stepIep();
-        for (const i of UNIVERSE) {
-          if (haltedNow(i.s)) continue;
-          const q = state.quotes[i.s];
-          const px = usesAuc(i) ? (q.iep > 0 ? q.iep : q.last) : q.last;
-          pushC(i.s, px, false);
+        if (ph !== "open-input") {
+          for (const i of UNIVERSE) {
+            if (haltedNow(i.s)) continue;
+            const q = state.quotes[i.s];
+            const px = usesAuc(i) ? (q.iep > 0 ? q.iep : q.last) : q.last;
+            pushC(i.s, px, false);
+          }
         }
       }
       persist();
