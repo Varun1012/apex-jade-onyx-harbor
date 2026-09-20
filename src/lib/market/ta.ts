@@ -1,8 +1,21 @@
 import type { Candle } from "./candles";
+import { formatPrice } from "../format";
 
 export type Hint = {
   title: string;
   body: string;
+  bias: "up" | "down" | "neutral";
+};
+
+export type Advice = {
+  hints: Hint[];
+  longRR: number | null;
+  shortRR: number | null;
+  support: number | null;
+  resist: number | null;
+  last: number | null;
+  atr: number | null;
+  volRatio: number | null;
   bias: "up" | "down" | "neutral";
 };
 
@@ -32,6 +45,34 @@ function ema(values: number[], n: number): number | null {
   let e = values.slice(0, n).reduce((a, b) => a + b, 0) / n;
   for (let i = n; i < values.length; i++) e = values[i]! * k + e * (1 - k);
   return e;
+}
+
+function trueRange(cs: Candle[], i: number): number {
+  const c = cs[i]!;
+  if (i === 0) return c.h - c.l;
+  const prev = cs[i - 1]!.c;
+  return Math.max(c.h - c.l, Math.abs(c.h - prev), Math.abs(c.l - prev));
+}
+
+function atr(cs: Candle[], n = 14): number | null {
+  if (cs.length < 2) return null;
+  const take = Math.min(n, cs.length - 1);
+  let s = 0;
+  for (let i = cs.length - take; i < cs.length; i++) s += trueRange(cs, Math.max(1, i));
+  return s / take;
+}
+
+export function overlayLive(cs: Candle[], live?: number | null): Candle[] {
+  if (!cs.length || live == null) return cs;
+  const copy = cs.slice();
+  const last = copy[copy.length - 1]!;
+  copy[copy.length - 1] = {
+    ...last,
+    c: live,
+    h: Math.max(last.h, live),
+    l: Math.min(last.l, live),
+  };
+  return copy;
 }
 
 function lastPattern(cs: Candle[]): Hint | null {
@@ -83,111 +124,143 @@ function lastPattern(cs: Candle[]): Hint | null {
   return null;
 }
 
-export function analyze(candles: Candle[]): Hint[] {
-  const cs = candles.slice(-80);
-  if (cs.length < 5) {
-    return [{ title: "數據不足", body: "陰陽燭仍在累積，稍後即可判斷。", bias: "neutral" }];
-  }
+export function advise(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" = "HKD"): Advice {
+  const cs = overlayLive(candles.slice(-80), live);
+  const empty: Advice = {
+    hints: [{ title: "數據不足", body: "陰陽燭仍在累積，稍後即可判斷。", bias: "neutral" }],
+    longRR: null,
+    shortRR: null,
+    support: null,
+    resist: null,
+    last: live ?? null,
+    atr: null,
+    volRatio: null,
+    bias: "neutral",
+  };
+  if (cs.length < 5) return empty;
+
   const closes = cs.map((c) => c.c);
   const last = closes[closes.length - 1]!;
   const ma20 = sma(closes, Math.min(20, closes.length));
   const ma60 = sma(closes, Math.min(60, closes.length));
   const r = rsi(closes);
-  const e12 = ema(closes, 12);
-  const e26 = ema(closes, 26);
+  const rangeBars = cs.slice(-20);
+  const resist = Math.max(...rangeBars.map((c) => c.h));
+  const support = Math.min(...rangeBars.map((c) => c.l));
+  const upRoom = Math.max(0, resist - last);
+  const dnRoom = Math.max(0, last - support);
+  const longRR = dnRoom > 1e-9 ? upRoom / dnRoom : null;
+  const shortRR = upRoom > 1e-9 ? dnRoom / upRoom : null;
+  const a = atr(cs, 14);
+  const vols = cs.map((c) => c.v ?? 0);
+  const volMa = sma(vols, Math.min(20, vols.length));
+  const lastVol = vols[vols.length - 1] ?? 0;
+  const volRatio = volMa && volMa > 0 ? lastVol / volMa : null;
+
   const hints: Hint[] = [];
+
+  const pat = lastPattern(cs);
+  if (pat) hints.push(pat);
 
   if (ma20 != null) {
     if (last > ma20 * 1.004) {
       hints.push({
-        title: "價格在 20 期均線之上",
-        body: `現價高於 SMA20（${ma20.toFixed(2)}）。短線結構偏多，回踩均線而守住可視作承接。`,
+        title: `站上 SMA20 · ${formatPrice(ma20, ccy)}`,
+        body: "短線結構偏多，回踩均線而守住可視作承接。",
         bias: "up",
       });
     } else if (last < ma20 * 0.996) {
       hints.push({
-        title: "價格在 20 期均線之下",
-        body: `現價低於 SMA20（${ma20.toFixed(2)}）。短線結構偏空，反彈至均線或遇阻力。`,
+        title: `跌破 SMA20 · ${formatPrice(ma20, ccy)}`,
+        body: "短線結構偏空，反彈至均線或遇阻力。",
         bias: "down",
       });
     } else {
       hints.push({
         title: "貼近 20 期均線",
-        body: "價格與均線糾纏，方向未明。宜等陽燭站穩或陰燭跌破再作判斷。",
+        body: "價格與均線糾纏，方向未明，等下一根確認。",
         bias: "neutral",
       });
     }
   }
 
-  if (ma20 != null && ma60 != null && cs.length >= 40) {
-    if (ma20 > ma60) {
-      hints.push({
-        title: "均線排列偏多",
-        body: "短期均線在長期均線之上（金叉結構）。趨勢跟隨者通常只在回調時考慮偏多。",
-        bias: "up",
-      });
-    } else {
-      hints.push({
-        title: "均線排列偏空",
-        body: "短期均線在長期均線之下（死叉結構）。反彈未升破均線前，教學上仍當弱勢。",
-        bias: "down",
-      });
-    }
+  if (r != null && (r >= 70 || r <= 30)) {
+    hints.push(
+      r >= 70
+        ? {
+            title: `RSI ${r.toFixed(0)} · 超買`,
+            body: "升勢或過熱，宜防回吐，不代表立刻要沽。",
+            bias: "down" as const,
+          }
+        : {
+            title: `RSI ${r.toFixed(0)} · 超賣`,
+            body: "跌勢或過急，需等陽燭確認，超賣可維持。",
+            bias: "up" as const,
+          },
+    );
+  } else if (volRatio != null && (volRatio >= 1.35 || volRatio <= 0.65)) {
+    hints.push(
+      volRatio >= 1.35
+        ? {
+            title: `放量 ${volRatio.toFixed(1)}×均量`,
+            body: "高於近 20 期均量，突破或跌破較有說服力。",
+            bias: (last >= cs[cs.length - 1]!.o ? "up" : "down") as "up" | "down",
+          }
+        : {
+            title: `縮量 ${volRatio.toFixed(1)}×均量`,
+            body: "低於均量，方向未獲資金確認，不宜追價。",
+            bias: "neutral" as const,
+          },
+    );
+  } else if (ma20 != null && ma60 != null && cs.length >= 40) {
+    hints.push({
+      title: ma20 > ma60 ? "均線排列偏多" : "均線排列偏空",
+      body: ma20 > ma60 ? "短線在長線之上，回調才考慮偏多。" : "短線在長線之下，反彈未升破前仍當弱勢。",
+      bias: ma20 > ma60 ? "up" : "down",
+    });
   }
 
-  if (r != null) {
-    if (r >= 70) {
-      hints.push({
-        title: `RSI ${r.toFixed(0)} · 超買區`,
-        body: "相對強弱指數偏高，並不等於立刻要沽，只表示升勢可能過熱，宜防回吐。",
-        bias: "down",
-      });
-    } else if (r <= 30) {
-      hints.push({
-        title: `RSI ${r.toFixed(0)} · 超賣區`,
-        body: "指數偏低，跌勢或過急。超賣可維持，需等陽燭或 RSI 轉上才作轉強觀察。",
-        bias: "up",
-      });
-    } else {
+  while (hints.length < 3) {
+    if (r != null && !hints.some((h) => h.title.startsWith("RSI"))) {
       hints.push({
         title: `RSI ${r.toFixed(0)} · 中性`,
-        body: "動能未極端。可把 RSI 當作輔助，主看陰陽燭與均線位置。",
+        body: "動能未極端。主看陰陽燭與均線，RSI 僅作輔助。",
         bias: "neutral",
       });
+      continue;
     }
+    if (longRR != null && shortRR != null && !hints.some((h) => h.title.includes("盈虧比"))) {
+      const better = longRR >= shortRR ? "偏多" : "偏空";
+      hints.push({
+        title: `區間 ${better}較佳`,
+        body: `近 20 根高 ${formatPrice(resist, ccy)}、低 ${formatPrice(support, ccy)}。教學上${better}方向報酬相對風險較佳。`,
+        bias: longRR >= shortRR ? "up" : "down",
+      });
+      continue;
+    }
+    break;
   }
 
-  if (e12 != null && e26 != null) {
-    const macd = e12 - e26;
-    hints.push({
-      title: macd >= 0 ? "MACD 柱在零軸之上" : "MACD 柱在零軸之下",
-      body:
-        macd >= 0
-          ? "12／26 指數平均差為正，中期動能偏多。"
-          : "平均差為負，中期動能偏空。零軸附近反覆屬盤整。",
-      bias: macd >= 0 ? "up" : "down",
-    });
+  let score = 0;
+  for (const h of hints) {
+    if (h.bias === "up") score += 1;
+    else if (h.bias === "down") score -= 1;
   }
+  const bias: Advice["bias"] = score >= 2 ? "up" : score <= -2 ? "down" : "neutral";
 
-  const recent = cs.slice(-5);
-  const higherHigh = recent.every((c, i) => i === 0 || c.h >= recent[i - 1]!.h);
-  const lowerLow = recent.every((c, i) => i === 0 || c.l <= recent[i - 1]!.l);
-  if (higherHigh) {
-    hints.push({
-      title: "近 5 根創更高高位",
-      body: "上升波動結構仍在。跌破最近一根低位才視為結構轉弱。",
-      bias: "up",
-    });
-  } else if (lowerLow) {
-    hints.push({
-      title: "近 5 根創更低低位",
-      body: "下跌波動結構仍在。要轉強需先止住低位並收復前高。",
-      bias: "down",
-    });
-  }
+  return {
+    hints: hints.slice(0, 3),
+    longRR,
+    shortRR,
+    support,
+    resist,
+    last,
+    atr: a,
+    volRatio,
+    bias,
+  };
+}
 
-  const pat = lastPattern(cs);
-  if (pat) hints.unshift(pat);
-
-  return hints.slice(0, 4);
+export function analyze(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" = "HKD"): Hint[] {
+  return advise(candles, live, ccy).hints;
 }

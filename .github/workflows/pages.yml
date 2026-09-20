@@ -38,6 +38,8 @@ jobs:
           grep -q "repairQuotesFromCandles" app.js
           grep -q "開市競價" app.js
           grep -q "冷靜期" app.js
+          grep -q "data-fin-report" app.js
+          grep -q "停牌" app.js
           grep -q "data-ohlc" app.js
           node --check app.js
           echo "checks passed"

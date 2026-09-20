@@ -19,12 +19,14 @@ import { createAmbient, type AmbientHandle } from "@/lib/ambient";
 import { equityOf, useDesk, type Speed } from "@/lib/store";
 import {
   canEnterAuctionOrders,
+  hkDayKey,
   isAuction,
   isContinuous,
   sessionLabel,
   sessionPhase,
   usesHkAuction,
 } from "@/lib/market/engine";
+import { formatDayKey, formatYi, isHalted, nextResults } from "@/lib/market/corporate";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -458,6 +460,7 @@ const WatchRow = memo(function WatchRow({
   const qt = useDesk((s) => s.quotes[symbol]);
   const selected = useDesk((s) => s.selected === symbol);
   const hist = useDesk((s) => s.histories[symbol]);
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
   const select = useDesk((s) => s.select);
   if (!qt) return null;
   const chg = (qt.last - qt.prevClose) / qt.prevClose;
@@ -476,7 +479,7 @@ const WatchRow = memo(function WatchRow({
         <span className="min-w-0">
           <span className="block truncate text-sm">{name}</span>
           <span className="text-[11px] text-muted-foreground">
-            {sector}
+            {halted ? "停牌" : sector}
           </span>
         </span>
         <span className="text-right">
@@ -528,12 +531,13 @@ function Ticket() {
       <div className="mt-2">
         <CandleChart symbol={selected} tf={tf} />
       </div>
-      <Hints symbol={selected} tf={tf} />
       <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
         港股慣例：紅升綠跌。持續交易時買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交，開／收市價相對前收可出現缺口。
       </p>
       <OrderTicket symbol={selected} />
+      <FinReport symbol={selected} />
+      <Hints symbol={selected} tf={tf} />
     </div>
   );
 }
@@ -544,6 +548,7 @@ function TicketHead({ symbol }: { symbol: string }) {
   const prev = useDesk((s) => s.quotes[symbol]?.prevClose);
   const iep = useDesk((s) => s.quotes[symbol]?.iep);
   const clock = useDesk((s) => s.clock);
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
   if (last == null || prev == null) return null;
   const chg = (last - prev) / prev;
   const auction = isAuction(clock) && usesHkAuction(inst);
@@ -554,8 +559,10 @@ function TicketHead({ symbol }: { symbol: string }) {
           <p className="font-mono text-sm text-muted-foreground">{inst.symbol}</p>
           <h2 className="text-xl font-medium tracking-tight">{inst.name}</h2>
         </div>
-        <Badge variant={inst.kind === "index" ? "outline" : "default"}>
-          {inst.kind === "index"
+        <Badge variant={halted ? "outline" : inst.kind === "index" ? "outline" : "default"}>
+          {halted
+            ? "停牌"
+            : inst.kind === "index"
             ? "指數差價 · 每點 HK$1"
             : inst.kind === "etf"
               ? "ETF"
@@ -573,6 +580,7 @@ function TicketHead({ symbol }: { symbol: string }) {
       <p className="mt-1 text-[11px] text-muted-foreground" data-prev-close>
         收市 {px(prev, symbol)}
         {auction && iep ? ` · 對盤 ${px(iep, symbol)}` : ""}
+        {halted ? " · 停牌" : ""}
       </p>
     </>
   );
@@ -615,10 +623,15 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
   const pos = useDesk((s) => s.positions.find((p) => p.symbol === symbol) ?? null);
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
+  const ccy = BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD";
   const advice = useMemo(() => {
     const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
-    return advise(series, live, BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD");
-  }, [symbol, tf, barT, len, live, lastVol]);
+    return advise(series, live, ccy);
+  }, [symbol, tf, live, barT, len, lastVol, ccy]);
+  const stableHints = useMemo(() => {
+    const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
+    return advise(series, undefined, ccy).hints.slice(0, 3);
+  }, [symbol, tf, barT, len, ccy]);
 
   let posR: number | null = null;
   let posPnl: number | null = null;
@@ -636,7 +649,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
     advice.longRR != null && advice.shortRR != null && advice.longRR >= advice.shortRR;
 
   return (
-    <div className="mt-3 space-y-2 rounded-lg border border-border bg-card p-3">
+    <div className="mt-3 min-h-[168px] space-y-2 rounded-lg border border-border bg-card p-3">
       <p className="text-[11px] tracking-wide text-muted-foreground">
         實時盈虧比 · 技術提示 · 教學用途，非投資建議
       </p>
@@ -671,7 +684,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
           </p>
         </div>
       ) : null}
-      {advice.hints.map((h) => (
+      {stableHints.map((h) => (
         <div key={h.title}>
           <p
             className={cn(
@@ -684,6 +697,50 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
           <p className="text-[12px] leading-relaxed text-muted-foreground">{h.body}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FinReport({ symbol }: { symbol: string }) {
+  const inst = BY_SYMBOL[symbol];
+  const clock = useDesk((s) => s.clock);
+  const report = useDesk((s) => s.reports?.[symbol]);
+  const halt = useDesk((s) => s.halt);
+  if (!inst || inst.kind !== "stock") return null;
+  const next = nextResults(symbol, clock);
+  const halted = isHalted(halt, symbol, hkDayKey(clock));
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-card p-3" data-fin-report>
+      <p className="text-[11px] tracking-wide text-muted-foreground">個股財報 · 每季公布一次</p>
+      {halted && halt ? (
+        <p className="mt-1 text-sm text-up">
+          停牌至 {formatDayKey(halt.untilKey)} · {halt.reason}
+        </p>
+      ) : null}
+      {report ? (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+          <div>
+            <p className="text-[11px] text-muted-foreground">最近 {report.period}</p>
+            <p className="tabular-nums">營業額 {formatYi(report.revenue)}</p>
+            <p className="tabular-nums">純利 {formatYi(report.profit)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground">按年 / 預期</p>
+            <p className="tabular-nums">
+              {report.yoy >= 0 ? "+" : "−"}
+              {Math.abs(report.yoy * 100).toFixed(1)}%
+            </p>
+            <p className="tabular-nums text-muted-foreground">
+              {report.surprise >= 0 ? "勝" : "遜"}預期 {Math.abs(report.surprise * 100).toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">尚無已公布業績。</p>
+      )}
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        下次公布 {formatDayKey(next.dayKey)} · {next.period}
+      </p>
     </div>
   );
 }
@@ -768,6 +825,7 @@ function OrderTicket({ symbol }: { symbol: string }) {
   const iep = useDesk((s) => s.quotes[symbol]?.iep);
   const clock = useDesk((s) => s.clock);
   const pending = useDesk((s) => s.pending);
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
   const qtyRef = useRef(defaultQty(symbol));
   const [qtyView, setQtyView] = useState(defaultQty(symbol));
   const [lev, setLev] = useState(1);
@@ -790,7 +848,7 @@ function OrderTicket({ symbol }: { symbol: string }) {
   const buyNotional = n * pxTrade * inst.pointValue;
   const sellNotional = n * pxSell * inst.pointValue;
   const buyMargin = buyNotional / levClamped;
-  const canSubmit = !auction || canEnterAuctionOrders(clock);
+  const canSubmit = (!auction || canEnterAuctionOrders(clock)) && !halted;
   const phase = sessionPhase(clock);
 
   function submit(side: "buy" | "sell") {
@@ -837,13 +895,15 @@ function OrderTicket({ symbol }: { symbol: string }) {
       {err ? <p className="text-sm text-up">{err}</p> : null}
       <div className="grid grid-cols-2 gap-2">
         <Button variant="buy" onClick={() => submit("buy")} disabled={!canSubmit}>
-          {auction ? `對盤買入 @ ${px(pxTrade, symbol)}` : `買入 @ ${px(ask, symbol)}`}
+          {halted ? "停牌" : auction ? `對盤買入 @ ${px(pxTrade, symbol)}` : `買入 @ ${px(ask, symbol)}`}
         </Button>
         <Button variant="sell" onClick={() => submit("sell")} disabled={!canSubmit}>
-          {auction ? `對盤賣出 @ ${px(pxSell, symbol)}` : `賣出 @ ${px(bid, symbol)}`}
+          {halted ? "停牌" : auction ? `對盤賣出 @ ${px(pxSell, symbol)}` : `賣出 @ ${px(bid, symbol)}`}
         </Button>
       </div>
-      {!canSubmit && auction ? (
+      {halted ? (
+        <p className="text-[11px] text-muted-foreground">停牌期間暫停買賣，持倉凍結至復牌。</p>
+      ) : !canSubmit && auction ? (
         <p className="text-[11px] text-muted-foreground">
           {phase === "open-cool" ? "冷靜期暫停輸入買賣盤，09:30 開市後可即時成交。" : "隨機對盤期間暫停輸入買賣盤。"}
         </p>

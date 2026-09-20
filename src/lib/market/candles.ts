@@ -223,6 +223,7 @@ export function applyTickCandles(
   quotes: Record<string, Quote>,
   clock: number,
   gap = false,
+  skip?: Set<string>,
 ): CandleBook {
   const ts: Record<Tf, number> = {
     "5m": bucketStart(clock, "5m"),
@@ -232,6 +233,7 @@ export function applyTickCandles(
   for (const inst of UNIVERSE) {
     const q = quotes[inst.symbol];
     if (!q) continue;
+    if (skip?.has(inst.symbol)) continue;
     const c = q.last;
     const unit = volumeUnit(inst);
     const chg = q.prevClose ? Math.abs(c - q.prevClose) / q.prevClose : 0;

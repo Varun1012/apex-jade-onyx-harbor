@@ -8,6 +8,20 @@ import {
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
+  earningsGap,
+  earningsNews,
+  haltNews,
+  haltSet,
+  isHalted,
+  publishReport,
+  resultsDueToday,
+  rollHalt,
+  seedReports,
+  volBoostFor,
+  type Halt,
+  type Report,
+} from "./market/corporate";
+import {
   adoptFormingBars,
   applyTickCandles,
   compactCandleBook,
@@ -87,6 +101,9 @@ type DeskState = {
   extreme: ExtremeSchedule | null;
   auction: AuctionBook;
   pending: AuctionOrder | null;
+  halt: Halt | null;
+  reports: Record<string, Report>;
+  earnFired: Record<string, boolean>;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -155,6 +172,9 @@ function initial() {
     extreme: null as ExtremeSchedule | null,
     auction: started.book,
     pending: null as AuctionOrder | null,
+    halt: null as Halt | null,
+    reports: seedReports(clock),
+    earnFired: {} as Record<string, boolean>,
   };
 }
 
@@ -286,6 +306,68 @@ function fillPending(
   };
 }
 
+function marketCtx(halt: Halt | null, dayKey: string, gapAdj?: Record<string, number>) {
+  const halted = haltSet(halt, dayKey);
+  const volBoost: Record<string, number> = {};
+  if (halt) {
+    const b = volBoostFor(halt, halt.symbol, dayKey);
+    if (b !== 1) volBoost[halt.symbol] = b;
+  }
+  return { halted, volBoost, gapAdj };
+}
+
+function openTradingDay(
+  clock: number,
+  quotes: Record<string, Quote>,
+  halt: Halt | null,
+  reports: Record<string, Report>,
+  earnFired: Record<string, boolean>,
+  extraNews: NewsItem[],
+) {
+  const dayKey = hkDayKey(clock);
+  let nextHalt = halt;
+  if (halt && dayKey >= halt.untilKey) {
+    extraNews.push(haltNews(halt, clock, "resume"));
+    nextHalt = null;
+  }
+  const due = resultsDueToday(clock);
+  const nextReports = { ...reports };
+  const nextFired = { ...earnFired };
+  const gapAdj: Record<string, number> = {};
+  for (const { inst, period } of due) {
+    const key = `${inst.symbol}:${dayKey}`;
+    if (nextFired[key]) continue;
+    const rep = publishReport(inst, period, clock, nextReports[inst.symbol]);
+    nextReports[inst.symbol] = rep;
+    nextFired[key] = true;
+    extraNews.push(earningsNews(inst, rep, clock));
+    gapAdj[inst.symbol] = earningsGap(rep);
+  }
+  if (halt && dayKey === halt.untilKey) {
+    const sign = Math.random() < 0.5 ? 1 : -1;
+    gapAdj[halt.symbol] = (gapAdj[halt.symbol] ?? 0) + sign * (0.028 + Math.random() * 0.055);
+  }
+  if (!nextHalt) {
+    const rolled = rollHalt(clock, null);
+    if (rolled && !due.some((d) => d.inst.symbol === rolled.symbol)) {
+      nextHalt = rolled;
+      extraNews.push(haltNews(rolled, clock, "start"));
+    }
+  }
+  const rolledQuotes = rollDay(quotes);
+  const auction = rollAuctionBook(clock);
+  const ctx = marketCtx(nextHalt, dayKey, gapAdj);
+  const started = beginAuctionSession(rolledQuotes, auction, "open", ctx);
+  return {
+    quotes: started.quotes,
+    auction: started.book,
+    halt: nextHalt,
+    reports: nextReports,
+    earnFired: nextFired,
+    ctx,
+  };
+}
+
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 const persistBuffer = { name: "", value: "" };
 const CANDLE_KEY = "hk-paper-desk-candles-v1";
@@ -370,20 +452,27 @@ export const useDesk = create<DeskState>()(
         let fills = st.fills;
         let news = st.news;
         let toast = st.toast;
+        let halt = st.halt;
+        let reports = st.reports && Object.keys(st.reports).length ? st.reports : seedReports(clock);
+        let earnFired = st.earnFired ?? {};
         const extraNews: NewsItem[] = [];
 
         if (auction.dayKey !== dayKey) {
           auction = rollAuctionBook(clock);
         }
 
+        let ctx = marketCtx(halt, dayKey);
+
         if (p.hour === 9 && p.minute === 0) {
-          quotes = rollDay(quotes);
-          auction = rollAuctionBook(clock);
-          const started = beginAuctionSession(quotes, auction, "open");
-          quotes = started.quotes;
-          auction = started.book;
+          const opened = openTradingDay(clock, quotes, halt, reports, earnFired, extraNews);
+          quotes = opened.quotes;
+          auction = opened.auction;
+          halt = opened.halt;
+          reports = opened.reports;
+          earnFired = opened.earnFired;
+          ctx = opened.ctx;
         } else if (p.hour === 16 && p.minute === 0 && !auction.closeDone) {
-          const started = beginAuctionSession(quotes, auction, "close");
+          const started = beginAuctionSession(quotes, auction, "close", ctx);
           quotes = started.quotes;
           auction = started.book;
         }
@@ -398,12 +487,12 @@ export const useDesk = create<DeskState>()(
 
         if (morningMatch || closeMatch) {
           const kind = morningMatch ? "open" : "close";
-          quotes = matchAuction(quotes, kind);
-          candles = applyTickCandles(candles, quotes, clock, true);
+          quotes = matchAuction(quotes, kind, ctx);
+          candles = applyTickCandles(candles, quotes, clock, true, ctx.halted);
           if (morningMatch) auction = { ...auction, morningDone: true };
           else auction = { ...auction, closeDone: true };
           extraNews.push(auctionGapNews(quotes, clock, kind));
-          if (pending) {
+          if (pending && !ctx.halted.has(pending.symbol)) {
             const filled = fillPending(pending, quotes, cash, positions, fills, clock);
             if (filled) {
               cash = filled.cash;
@@ -415,20 +504,25 @@ export const useDesk = create<DeskState>()(
           }
           if (closeMatch) {
             clock = nextMarketOpen(clock);
-            quotes = rollDay(quotes);
-            auction = rollAuctionBook(clock);
-            const started = beginAuctionSession(quotes, auction, "open");
-            quotes = started.quotes;
-            auction = started.book;
+            const opened = openTradingDay(clock, quotes, halt, reports, earnFired, extraNews);
+            quotes = opened.quotes;
+            auction = opened.auction;
+            halt = opened.halt;
+            reports = opened.reports;
+            earnFired = opened.earnFired;
+            ctx = opened.ctx;
           }
         } else if (isContinuous(clock)) {
           let extreme = st.extreme ?? null;
           if (!extreme || extreme.dayKey !== dayKey) {
             extreme = rollExtremeEvent(clock);
           }
-          const stepped = stepMarket(quotes, st.histories, clock, extreme);
+          if (extreme?.event && ctx.halted.has(extreme.event.symbol) && !extreme.event.fired) {
+            extreme = { ...extreme, event: { ...extreme.event, fired: true } };
+          }
+          const stepped = stepMarket(quotes, st.histories, clock, extreme, ctx);
           quotes = stepped.quotes;
-          candles = applyTickCandles(candles, quotes, clock, false);
+          candles = applyTickCandles(candles, quotes, clock, false, ctx.halted);
           if (stepped.extremeFired && extreme.event) {
             extreme = { ...extreme, event: { ...extreme.event, fired: true } };
           }
@@ -450,13 +544,16 @@ export const useDesk = create<DeskState>()(
             extreme,
             auction,
             pending,
+            halt,
+            reports,
+            earnFired,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
           });
           return;
         } else if (isAuctionPhaseWalk(clock, auction)) {
-          quotes = stepAuctionIep(quotes, auction);
+          quotes = stepAuctionIep(quotes, auction, ctx);
         }
 
         const eq = equityOf(cash, positions, quotes);
@@ -470,6 +567,9 @@ export const useDesk = create<DeskState>()(
           news: extraNews.length ? [...extraNews, ...news].slice(0, 24) : news,
           auction,
           pending,
+          halt,
+          reports,
+          earnFired,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -481,6 +581,9 @@ export const useDesk = create<DeskState>()(
         if (!Number.isFinite(qty) || qty <= 0) return "請輸入有效股數";
         const inst = BY_SYMBOL[st.selected];
         if (!inst) return "找不到股票";
+        if (isHalted(st.halt, st.selected, hkDayKey(st.clock))) {
+          return `${inst.name} 停牌，暫停買賣`;
+        }
         const q = st.quotes[st.selected]!;
         if (usesHkAuction(inst) && !isContinuous(st.clock)) {
           if (!canEnterAuctionOrders(st.clock)) {
@@ -573,6 +676,10 @@ export const useDesk = create<DeskState>()(
         const p = st.positions.find((x) => x.symbol === symbol);
         if (!p) return;
         const inst = BY_SYMBOL[symbol];
+        if (inst && isHalted(st.halt, symbol, hkDayKey(st.clock))) {
+          set({ toast: `${inst.name} 停牌，暫停平倉` });
+          return;
+        }
         if (inst && usesHkAuction(inst) && !isContinuous(st.clock)) {
           if (!canEnterAuctionOrders(st.clock)) {
             set({
@@ -645,6 +752,9 @@ export const useDesk = create<DeskState>()(
         extreme: s.extreme,
         auction: s.auction,
         pending: s.pending,
+        halt: s.halt,
+        reports: s.reports,
+        earnFired: s.earnFired,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({

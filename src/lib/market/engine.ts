@@ -343,11 +343,18 @@ function writeQuote(
   return sp.last;
 }
 
+export type MarketCtx = {
+  halted?: Set<string>;
+  volBoost?: Record<string, number>;
+  gapAdj?: Record<string, number>;
+};
+
 export function stepMarket(
   quotes: Record<string, Quote>,
   histories: Record<string, number[]>,
   clock: number,
   extreme?: ExtremeSchedule | null,
+  ctx?: MarketCtx,
 ): TickResult {
   const shock = gauss() * 0.0018;
   let news: NewsItem | null = null;
@@ -409,6 +416,7 @@ export function stepMarket(
 
   for (const inst of UNIVERSE) {
     if (inst.kind === "index" || inst.kind === "crypto") continue;
+    if (ctx?.halted?.has(inst.symbol)) continue;
     const q = quotes[inst.symbol];
     if (!q) continue;
     let raw: number;
@@ -424,7 +432,8 @@ export function stepMarket(
         sign: extreme!.event!.sign,
       };
     } else {
-      const idio = gauss() * inst.vol * 0.18;
+      const boost = ctx?.volBoost?.[inst.symbol] ?? 1;
+      const idio = gauss() * inst.vol * 0.18 * boost;
       const anchor = q.prevClose > 0 ? q.prevClose : inst.start;
       const meanRev = ((anchor - q.last) / anchor) * 0.004;
       let jump = shock * inst.beta + idio + meanRev;
@@ -507,19 +516,23 @@ export function beginAuctionSession(
   quotes: Record<string, Quote>,
   book: AuctionBook,
   kind: "open" | "close",
+  ctx?: MarketCtx,
 ): { quotes: Record<string, Quote>; book: AuctionBook } {
   const target: Record<string, number> = { ...book.target };
   const next: Record<string, Quote> = { ...quotes };
   for (const inst of UNIVERSE) {
     const q = quotes[inst.symbol];
     if (!q) continue;
-    if (!usesHkAuction(inst)) {
+    if (ctx?.halted?.has(inst.symbol) || !usesHkAuction(inst)) {
       next[inst.symbol] = { ...q, iep: q.last };
       target[inst.symbol] = q.last;
       continue;
     }
     const base = kind === "open" ? q.prevClose : q.last;
-    const g = kind === "open" ? overnightGap(inst) : gauss() * inst.vol * 0.45;
+    let g = kind === "open" ? overnightGap(inst) : gauss() * inst.vol * 0.45;
+    if (kind === "open") g += ctx?.gapAdj?.[inst.symbol] ?? 0;
+    const boost = ctx?.volBoost?.[inst.symbol] ?? 1;
+    g *= Math.sqrt(boost);
     const raw = Math.max(tickSize(base, inst.kind), base * (1 + g));
     const tgt = inst.kind === "index" ? Math.round(raw) : roundTick(raw, inst.kind);
     target[inst.symbol] = tgt;
@@ -537,12 +550,13 @@ export function beginAuctionSession(
 export function stepAuctionIep(
   quotes: Record<string, Quote>,
   book: AuctionBook,
+  ctx?: MarketCtx,
 ): Record<string, Quote> {
   const next: Record<string, Quote> = { ...quotes };
   for (const inst of UNIVERSE) {
     const q = quotes[inst.symbol];
     if (!q) continue;
-    if (!usesHkAuction(inst)) {
+    if (ctx?.halted?.has(inst.symbol) || !usesHkAuction(inst)) {
       next[inst.symbol] = { ...q, iep: q.last };
       continue;
     }
@@ -565,12 +579,13 @@ export function stepAuctionIep(
 export function matchAuction(
   quotes: Record<string, Quote>,
   kind: "open" | "close",
+  ctx?: MarketCtx,
 ): Record<string, Quote> {
   const next: Record<string, Quote> = { ...quotes };
   for (const inst of UNIVERSE) {
     const q = quotes[inst.symbol];
     if (!q) continue;
-    if (!usesHkAuction(inst)) {
+    if (ctx?.halted?.has(inst.symbol) || !usesHkAuction(inst)) {
       next[inst.symbol] = { ...q, iep: q.last };
       continue;
     }

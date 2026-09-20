@@ -6,32 +6,32 @@
     { s: "HSI", n: "恒生指數迷你", k: "index", start: 25842, vol: 0.012, beta: 1, pv: 1, lev: 10, lot: 1 },
     { s: "BTC", n: "Bitcoin", k: "crypto", start: 97250, vol: 0.045, beta: 0.4, pv: 7.8, lev: 5, lot: 0.001 },
     { s: "2800", n: "盈富基金", k: "etf", start: 25.84, vol: 0.01, beta: 1, pv: 1, lev: 1, lot: 100 },
-    { s: "0005", n: "匯豐控股", start: 88.45, vol: 0.011, beta: 0.85, pv: 1, lev: 5, lot: 400 },
-    { s: "0700", n: "騰訊控股", start: 412.6, vol: 0.018, beta: 1.25, pv: 1, lev: 5, lot: 100 },
-    { s: "9988", n: "阿里巴巴", start: 92.15, vol: 0.02, beta: 1.3, pv: 1, lev: 5, lot: 100 },
-    { s: "3690", n: "美團", start: 118.3, vol: 0.024, beta: 1.35, pv: 1, lev: 5, lot: 100 },
-    { s: "1810", n: "小米集團", start: 48.75, vol: 0.026, beta: 1.4, pv: 1, lev: 5, lot: 200 },
-    { s: "0941", n: "中國移動", start: 76.2, vol: 0.009, beta: 0.55, pv: 1, lev: 2, lot: 500 },
-    { s: "1299", n: "友邦保險", start: 68.9, vol: 0.013, beta: 0.9, pv: 1, lev: 5, lot: 200 },
-    { s: "0388", n: "港交所", start: 352.4, vol: 0.016, beta: 1.1, pv: 1, lev: 5, lot: 100 },
-    { s: "2318", n: "中國平安", start: 47.85, vol: 0.017, beta: 1.05, pv: 1, lev: 5, lot: 500 },
-    { s: "1211", n: "比亞迪股份", start: 268, vol: 0.022, beta: 1.2, pv: 1, lev: 5, lot: 50 },
-    { s: "0434", n: "博雅互動", start: 5.18, vol: 0.038, beta: 1.15, pv: 1, lev: 5, lot: 400 },
-    { s: "0012", n: "恆基地產", start: 23.85, vol: 0.016, beta: 0.75, pv: 1, lev: 2, lot: 1000 },
-    { s: "0857", n: "中國石油股份", start: 6.58, vol: 0.014, beta: 0.8, pv: 1, lev: 2, lot: 2000 },
-    { s: "0992", n: "聯想集團", start: 9.92, vol: 0.022, beta: 1.05, pv: 1, lev: 5, lot: 2000 },
-    { s: "3988", n: "中國銀行", start: 4.21, vol: 0.01, beta: 0.72, pv: 1, lev: 2, lot: 1000 },
-    { s: "9618", n: "京東集團", start: 128.5, vol: 0.023, beta: 1.28, pv: 1, lev: 5, lot: 50 },
-    { s: "9999", n: "網易", start: 154.8, vol: 0.019, beta: 1.15, pv: 1, lev: 5, lot: 100 },
-    { s: "0001", n: "長和", start: 46.2, vol: 0.012, beta: 0.7, pv: 1, lev: 2, lot: 500 },
-    { s: "0002", n: "中電控股", start: 64.75, vol: 0.007, beta: 0.35, pv: 1, lev: 2, lot: 500 },
-    { s: "0011", n: "恒生銀行", start: 108.3, vol: 0.01, beta: 0.65, pv: 1, lev: 2, lot: 100 },
-    { s: "0175", n: "吉利汽車", start: 16.42, vol: 0.025, beta: 1.22, pv: 1, lev: 5, lot: 500 },
-    { s: "2020", n: "安踏體育", start: 86.5, vol: 0.018, beta: 0.95, pv: 1, lev: 5, lot: 200 },
-    { s: "2382", n: "舜宇光學", start: 62.8, vol: 0.028, beta: 1.32, pv: 1, lev: 5, lot: 100 },
-    { s: "1024", n: "快手", start: 52.4, vol: 0.03, beta: 1.45, pv: 1, lev: 5, lot: 100 },
-    { s: "9961", n: "攜程集團", start: 478, vol: 0.021, beta: 1.18, pv: 1, lev: 5, lot: 50 },
-    { s: "9888", n: "百度集團", start: 91.2, vol: 0.022, beta: 1.2, pv: 1, lev: 5, lot: 50 },
+    { s: "0005", n: "匯豐控股", start: 88.45, vol: 0.0055, beta: 0.85, pv: 1, lev: 5, lot: 400 },
+    { s: "0700", n: "騰訊控股", start: 412.6, vol: 0.009, beta: 1.25, pv: 1, lev: 5, lot: 100 },
+    { s: "9988", n: "阿里巴巴", start: 92.15, vol: 0.01, beta: 1.3, pv: 1, lev: 5, lot: 100 },
+    { s: "3690", n: "美團", start: 118.3, vol: 0.012, beta: 1.35, pv: 1, lev: 5, lot: 100 },
+    { s: "1810", n: "小米集團", start: 48.75, vol: 0.013, beta: 1.4, pv: 1, lev: 5, lot: 200 },
+    { s: "0941", n: "中國移動", start: 76.2, vol: 0.0045, beta: 0.55, pv: 1, lev: 2, lot: 500 },
+    { s: "1299", n: "友邦保險", start: 68.9, vol: 0.0065, beta: 0.9, pv: 1, lev: 5, lot: 200 },
+    { s: "0388", n: "港交所", start: 352.4, vol: 0.008, beta: 1.1, pv: 1, lev: 5, lot: 100 },
+    { s: "2318", n: "中國平安", start: 47.85, vol: 0.0085, beta: 1.05, pv: 1, lev: 5, lot: 500 },
+    { s: "1211", n: "比亞迪股份", start: 268, vol: 0.011, beta: 1.2, pv: 1, lev: 5, lot: 50 },
+    { s: "0434", n: "博雅互動", start: 5.18, vol: 0.019, beta: 1.15, pv: 1, lev: 5, lot: 400 },
+    { s: "0012", n: "恆基地產", start: 23.85, vol: 0.008, beta: 0.75, pv: 1, lev: 2, lot: 1000 },
+    { s: "0857", n: "中國石油股份", start: 6.58, vol: 0.007, beta: 0.8, pv: 1, lev: 2, lot: 2000 },
+    { s: "0992", n: "聯想集團", start: 9.92, vol: 0.011, beta: 1.05, pv: 1, lev: 5, lot: 2000 },
+    { s: "3988", n: "中國銀行", start: 4.21, vol: 0.005, beta: 0.72, pv: 1, lev: 2, lot: 1000 },
+    { s: "9618", n: "京東集團", start: 128.5, vol: 0.0115, beta: 1.28, pv: 1, lev: 5, lot: 50 },
+    { s: "9999", n: "網易", start: 154.8, vol: 0.0095, beta: 1.15, pv: 1, lev: 5, lot: 100 },
+    { s: "0001", n: "長和", start: 46.2, vol: 0.006, beta: 0.7, pv: 1, lev: 2, lot: 500 },
+    { s: "0002", n: "中電控股", start: 64.75, vol: 0.0035, beta: 0.35, pv: 1, lev: 2, lot: 500 },
+    { s: "0011", n: "恒生銀行", start: 108.3, vol: 0.005, beta: 0.65, pv: 1, lev: 2, lot: 100 },
+    { s: "0175", n: "吉利汽車", start: 16.42, vol: 0.0125, beta: 1.22, pv: 1, lev: 5, lot: 500 },
+    { s: "2020", n: "安踏體育", start: 86.5, vol: 0.009, beta: 0.95, pv: 1, lev: 5, lot: 200 },
+    { s: "2382", n: "舜宇光學", start: 62.8, vol: 0.014, beta: 1.32, pv: 1, lev: 5, lot: 100 },
+    { s: "1024", n: "快手", start: 52.4, vol: 0.015, beta: 1.45, pv: 1, lev: 5, lot: 100 },
+    { s: "9961", n: "攜程集團", start: 478, vol: 0.0105, beta: 1.18, pv: 1, lev: 5, lot: 50 },
+    { s: "9888", n: "百度集團", start: 91.2, vol: 0.011, beta: 1.2, pv: 1, lev: 5, lot: 50 },
   ];
   const BY = Object.fromEntries(UNIVERSE.map((i) => [i.s, i]));
   const PIN = { HSI: 0, BTC: 1 };
@@ -42,6 +42,83 @@
     return parseInt(a.s, 10) - parseInt(b.s, 10);
   });
 
+  const HALT_WHY = ["待公布內幕消息", "待刊發業績／重大交易公告", "股價及成交量出現異常波動，待澄清", "核數／會計事項待澄清", "重大收購或出售協議洽談中"];
+  const FIN_BASE = {
+    "0700": [1612, 428, 0.09], "0005": [1488, 612, 0.04], "9988": [2240, 286, 0.07], "3690": [812, 38, 0.18],
+    "1810": [768, 52, 0.22], "0941": [1860, 318, 0.03], "1299": [420, 96, 0.08], "0388": [52, 32, 0.06],
+    "2318": [2180, 268, 0.02], "1211": [1420, 88, 0.16], "0434": [6.8, 1.1, 0.14], "0012": [48, 9.2, -0.06],
+    "0857": [3120, 412, 0.05], "0992": [980, 22, 0.11], "3988": [1680, 486, 0.03], "9618": [1180, 64, 0.08],
+    "9999": [268, 72, 0.1], "0001": [92, 18, 0.02], "0002": [86, 11, 0.01], "0011": [210, 48, 0.03],
+    "0175": [620, 28, 0.13], "2020": [186, 24, 0.09], "2382": [72, 6.4, 0.15], "1024": [310, 14, 0.12],
+    "9961": [148, 32, 0.17], "9888": [268, 36, 0.05]
+  };
+  const FIN_WIN = [[3, 12, "全年業績"], [5, 6, "第一季業績"], [8, 12, "中期業績"], [11, 6, "第三季業績"]];
+  function hashSym(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  }
+  function addTradingDays(from, n) {
+    let t = from, left = n;
+    while (left > 0) {
+      t += 86400000;
+      const p = hkParts(t);
+      if (p.weekday >= 1 && p.weekday <= 5) left -= 1;
+    }
+    return t;
+  }
+  function isStock(i) { return !i.k || i.k === "stock"; }
+  function haltedNow(s) {
+    return state.halt && state.halt.s === s && dayKey(state.clock) < state.halt.until;
+  }
+  function volBoost(s) {
+    const h = state.halt;
+    if (!h || h.s !== s) return 1;
+    const d = dayKey(state.clock);
+    return d === h.until || d === h.boost ? 2.1 : 1;
+  }
+  function fmtYi(n) {
+    if (n >= 100) return n.toFixed(0) + " 億";
+    if (n >= 10) return n.toFixed(1) + " 億";
+    return n.toFixed(2) + " 億";
+  }
+  function windowDay(year, month, day, symbol) {
+    let t = hkDate(year, month, day, 9, 0) + (hashSym(symbol) % 10) * 86400000;
+    for (let i = 0; i < 6; i++) {
+      const p = hkParts(t);
+      if (p.weekday >= 1 && p.weekday <= 5) return p;
+      t += 86400000;
+    }
+    return hkParts(t);
+  }
+  function nextFin(symbol, clock, past) {
+    const p = hkParts(clock);
+    const today = dayKey(clock);
+    const cand = [];
+    for (const y of [p.year - 1, p.year, p.year + 1]) {
+      for (const w of FIN_WIN) {
+        const d = windowDay(y, w[0], w[1], symbol);
+        const at = hkDate(d.year, d.month, d.day, 9, 0);
+        cand.push({ key: dayKey(at), period: y + " " + w[2], at });
+      }
+    }
+    cand.sort((a, b) => a.at - b.at);
+    if (past) {
+      const hit = cand.filter((c) => c.key < today);
+      return hit[hit.length - 1] || cand[0];
+    }
+    return cand.find((c) => c.key >= today) || cand[cand.length - 1];
+  }
+  function seedReports(clock) {
+    const out = {};
+    for (const i of UNIVERSE) {
+      if (!isStock(i)) continue;
+      const b = FIN_BASE[i.s] || [i.start * 1.8, i.start * 0.22, 0.04];
+      const prev = nextFin(i.s, clock, true);
+      out[i.s] = { period: prev.period, rev: b[0], profit: b[1], yoy: b[2], sur: 0, at: prev.at };
+    }
+    return out;
+  }
   const FUND = {
     HSI: 1, BTC: 0.15, "2800": 1, "0005": 0.92, "0700": 0.76, "9988": 0.58, "3690": 0.42,
     "1810": 0.46, "0941": 0.95, "1299": 0.9, "0388": 0.86, "2318": 0.78, "1211": 0.56,
@@ -430,9 +507,6 @@
     const vma = sma(vols, Math.min(20, vols.length));
     const vr = vma ? vols.at(-1) / vma : null;
     const out = [];
-    if (rr.longRR != null && rr.shortRR != null) {
-      out.push(["neu", "區間盈虧比  多 " + rr.longRR.toFixed(1) + ":1  ·  空 " + rr.shortRR.toFixed(1) + ":1", "近 20 根高 " + fmtP(rr.resist) + "、低 " + fmtP(rr.support) + "。隨現價實時改寫，教學上報酬較高的一方較佳。"]);
-    }
     if (cs.length >= 2) {
       const a = liveCs.at(-2), b = liveCs.at(-1);
       const body = Math.abs(b.c - b.o), rng = b.h - b.l || 1e-9;
@@ -467,10 +541,10 @@
       );
     }
     if (vr != null) {
-      if (vr >= 1.35) out.push([liveCs.at(-1).c >= liveCs.at(-1).o ? "up" : "down", "此根放量 " + vr.toFixed(1) + "×均量", "高於近 20 期均量，突破或跌破較有說服力。"]);
-      else if (vr <= 0.65) out.push(["neu", "此根縮量 " + vr.toFixed(1) + "×均量", "低於均量，方向未獲資金確認。"]);
+      if (vr >= 1.35) out.push([liveCs.at(-1).c >= liveCs.at(-1).o ? "up" : "down", "放量 " + vr.toFixed(1) + "×均量", "高於近 20 期均量，突破或跌破較有說服力。"]);
+      else if (vr <= 0.65) out.push(["neu", "縮量 " + vr.toFixed(1) + "×均量", "低於均量，方向未獲資金確認。"]);
     }
-    return out.slice(0, 5);
+    return out.slice(0, 3);
   }
 
   function fresh() {
@@ -495,6 +569,9 @@
       extreme: null,
       auction: null,
       pending: null,
+      halt: null,
+      reports: null,
+      earnFired: {},
     };
   }
 
@@ -617,6 +694,9 @@
           quotes: mergeQuotes(s.quotes),
           auction: s.auction || null,
           pending: s.pending || null,
+          halt: s.halt || null,
+          reports: s.reports || null,
+          earnFired: s.earnFired || {},
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -624,6 +704,8 @@
     }
   } catch (_) {}
   if (!state.auction) state.auction = rollAuction(state.clock);
+  if (!state.reports) state.reports = seedReports(state.clock);
+  if (!state.earnFired) state.earnFired = {};
   if (sessionPhase(state.clock) === "open-input" && (!state.auction.tgt || !Object.keys(state.auction.tgt).length)) {
     beginAuc("open");
   }
@@ -656,6 +738,9 @@
       extreme: state.extreme,
       auction: state.auction,
       pending: state.pending,
+      halt: state.halt,
+      reports: state.reports,
+      earnFired: state.earnFired,
       quotes: compactQuotes(state.quotes),
       candles: compactCandles(state.candles),
       news: state.news,
@@ -793,7 +878,7 @@
     const tgt = {};
     for (const i of UNIVERSE) {
       const q = state.quotes[i.s];
-      if (!usesAuc(i)) {
+      if (!usesAuc(i) || haltedNow(i.s)) {
         q.iep = q.last;
         tgt[i.s] = q.last;
         continue;
@@ -813,7 +898,7 @@
     const tgt = state.auction && state.auction.tgt ? state.auction.tgt : {};
     for (const i of UNIVERSE) {
       const q = state.quotes[i.s];
-      if (!usesAuc(i)) {
+      if (!usesAuc(i) || haltedNow(i.s)) {
         q.iep = q.last;
         continue;
       }
@@ -835,7 +920,7 @@
   function matchAuc(kind) {
     for (const i of UNIVERSE) {
       const q = state.quotes[i.s];
-      if (!usesAuc(i)) {
+      if (!usesAuc(i) || haltedNow(i.s)) {
         q.iep = q.last;
         continue;
       }
@@ -882,9 +967,66 @@
     }
   }
 
+  function openDay() {
+    const dk = dayKey(state.clock);
+    const gapAdj = {};
+    if (state.halt && dk >= state.halt.until) {
+      state.news = state.halt.n + "（" + state.halt.s + "）復牌。停牌期間累積消息，短線波幅或明顯擴大。";
+      const sign = Math.random() < 0.5 ? 1 : -1;
+      gapAdj[state.halt.s] = sign * (0.028 + Math.random() * 0.055);
+      state.halt = null;
+    }
+    for (const i of UNIVERSE) {
+      if (!isStock(i)) continue;
+      const due = nextFin(i.s, state.clock, false);
+      if (due.key !== dk) continue;
+      const key = i.s + ":" + dk;
+      if (state.earnFired[key]) continue;
+      const prev = state.reports[i.s] || { rev: i.start, profit: i.start * 0.2, yoy: 0.04, sur: 0 };
+      const q = FUND[i.s] ?? 0.5;
+      const sur = gauss() * (0.035 + (1 - q) * 0.06);
+      const yoy = prev.yoy + sur * 0.55 + gauss() * 0.015;
+      const rep = {
+        period: due.period,
+        rev: Math.max(0.2, prev.rev * (1 + yoy * 0.35)),
+        profit: Math.max(0.05, prev.profit * (1 + yoy)),
+        yoy, sur, at: state.clock,
+      };
+      state.reports[i.s] = rep;
+      state.earnFired[key] = true;
+      gapAdj[i.s] = (gapAdj[i.s] || 0) + sur * 0.85 + (yoy > 0 ? 0.004 : -0.006);
+      const beat = sur >= 0;
+      state.news = i.n + "公布" + rep.period + "：營業額 " + fmtYi(rep.rev) + "，純利 " + fmtYi(rep.profit) + "，按年 " + (yoy >= 0 ? "+" : "−") + Math.abs(yoy * 100).toFixed(1) + "%，" + (beat ? "勝" : "遜") + "預期 " + Math.abs(sur * 100).toFixed(1) + "%。";
+    }
+    if (!state.halt && Math.random() < 0.012) {
+      const pool = UNIVERSE.filter(isStock);
+      const inst = pool[Math.floor(Math.random() * pool.length)];
+      const days = 1 + Math.floor(Math.random() * 3);
+      const until = addTradingDays(state.clock, days);
+      const boost = addTradingDays(until, 1);
+      state.halt = {
+        s: inst.s, n: inst.n,
+        reason: HALT_WHY[Math.floor(Math.random() * HALT_WHY.length)],
+        until: dayKey(until),
+        boost: dayKey(boost),
+      };
+      state.news = inst.n + "（" + inst.s + "）停牌。" + state.halt.reason + "。預計 " + state.halt.until.slice(5).replace("-", "/") + " 復牌。";
+    }
+    rollQuotesDay();
+    state.auction = rollAuction(state.clock);
+    beginAuc("open");
+    for (const s of Object.keys(gapAdj)) {
+      const inst = BY[s], q = state.quotes[s];
+      if (!inst || !q || haltedNow(s)) continue;
+      const raw = q.prev * (1 + gapAdj[s]);
+      state.auction.tgt[s] = rnd(raw, inst);
+    }
+  }
+
   function fillPendingAuc() {
     const pend = state.pending;
     if (!pend) return;
+    if (haltedNow(pend.s)) return;
     const inst = BY[pend.s], q = state.quotes[pend.s];
     if (!inst || !q) { state.pending = null; return; }
     const price = q.iep > 0 ? q.iep : q.last;
@@ -929,9 +1071,7 @@
     const dk = dayKey(state.clock);
     if (!state.auction || state.auction.day !== dk) state.auction = rollAuction(state.clock);
     if (hp.hour === 9 && hp.minute === 0) {
-      rollQuotesDay();
-      state.auction = rollAuction(state.clock);
-      beginAuc("open");
+      openDay();
     } else if (hp.hour === 16 && hp.minute === 0 && !state.auction.pm) {
       beginAuc("close");
     }
@@ -946,9 +1086,7 @@
       fillPendingAuc();
       if (closeMatch) {
         state.clock = nextOpen(state.clock);
-        rollQuotesDay();
-        state.auction = rollAuction(state.clock);
-        beginAuc("open");
+        openDay();
       }
       persist();
       render();
@@ -969,6 +1107,7 @@
     let newsFocus = null;
     if (!state.extreme || state.extreme.day !== dk) state.extreme = rollExtreme(state.clock);
     const ev = state.extreme && state.extreme.event;
+    if (ev && !ev.fired && haltedNow(ev.s)) ev.fired = true;
     const due = ev && !ev.fired && state.clock >= ev.fireAt;
     if (!due && Math.random() < 0.028) {
       const n = NEWS[Math.floor(Math.random() * NEWS.length)];
@@ -1006,6 +1145,7 @@
     }
     for (const i of UNIVERSE) {
       if (i.s === "HSI" || i.s === "2800" || i.k === "crypto") continue;
+      if (haltedNow(i.s)) continue;
       const q = state.quotes[i.s];
       const extra = newsFocus === i.s ? newsBias * 2.4 : newsBias * i.beta;
       let raw;
@@ -1015,7 +1155,7 @@
         state.news = ev.text;
         toast(ev.text);
       } else {
-        let jump = shock * i.beta + gauss() * i.vol * 0.18 + extra;
+        let jump = shock * i.beta + gauss() * i.vol * 0.18 * volBoost(i.s) + extra;
         if (i.s === "0434") {
           if (due && ev.s === "BTC") jump += ev.sign * ev.mag * 0.45;
           else jump += btcReturn * 0.5;
@@ -1063,6 +1203,7 @@
   function place(side) {
     if (state.won || state.busted) return;
     const inst = BY[state.sel], q = state.quotes[state.sel];
+    if (haltedNow(state.sel)) return toast(inst.n + " 停牌，暫停買賣");
     const qty = parseQty(state.qty, inst);
     if (!qty) return toast("請輸入數量");
     const lev = Math.min(state.lev, inst.lev);
@@ -1324,9 +1465,11 @@
     const askEl = document.getElementById("sel-ask");
     if (askEl) askEl.textContent = fmtP(q.ask);
     const buyBtn = document.getElementById("buy");
-    if (buyBtn) buyBtn.textContent = "買入 @ " + fmtP(q.ask);
     const sellBtn = document.getElementById("sell");
-    if (sellBtn) sellBtn.textContent = "賣出 @ " + fmtP(q.bid);
+    const halted = haltedNow(state.sel);
+    const aucNow = usesAuc(BY[state.sel]) && isAuction(state.clock);
+    if (buyBtn && !halted && !aucNow) buyBtn.textContent = "買入 @ " + fmtP(q.ask);
+    if (sellBtn && !halted && !aucNow) sellBtn.textContent = "賣出 @ " + fmtP(q.bid);
     paintPositions();
     paintAdvice();
   }
@@ -1378,10 +1521,13 @@
     const tgtS = document.getElementById("rr-short-t");
     if (tgtL) tgtL.textContent = rr.resist != null ? "目標 " + fmtP(rr.resist) : "";
     if (tgtS) tgtS.textContent = rr.support != null ? "目標 " + fmtP(rr.support) : "";
-    const hs = hints(state.candles[state.sel][state.tf] || []);
-    const box = document.getElementById("hints-live");
-    if (box) {
-      box.innerHTML = hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("");
+    const hsBox = document.getElementById("hints-live");
+    const bar = (state.candles[state.sel][state.tf] || []).at(-1);
+    const barT = bar ? bar.t : 0;
+    if (hsBox && hsBox.dataset.bar !== String(barT) + state.sel + state.tf) {
+      const hs = hints(state.candles[state.sel][state.tf] || []);
+      hsBox.dataset.bar = String(barT) + state.sel + state.tf;
+      hsBox.innerHTML = hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("");
     }
     const posLive = document.getElementById("pos-live");
     if (posLive) {
@@ -1452,7 +1598,8 @@
     const hsich = (hsi.last - hsi.prev) / hsi.prev;
     const chg = (q.last - q.prev) / q.prev;
     const auc = usesAuc(inst) && isAuction(state.clock);
-    const canAuc = !auc || canEnterAuc(state.clock);
+    const halted = haltedNow(state.sel);
+    const canAuc = (!auc || canEnterAuc(state.clock)) && !halted;
     const iep = q.iep > 0 ? q.iep : q.last;
     const series = state.candles[state.sel][state.tf];
     const hs = hints(series);
@@ -1489,14 +1636,14 @@
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
             const hide = n && !i.s.includes(n) && !i.n.includes(n);
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${fmtPct(c)}</small></span></button>`;
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${haltedNow(i.s) ? " <small class=up>停牌</small>" : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${haltedNow(i.s) ? "停牌" : fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
           <div class="muted mono">${inst.s} · ${inst.k === "crypto" ? "USD · 約 7.8 兌港元" : "每手 " + inst.lot}</div>
           <h2>${inst.n}</h2>
           <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
-          <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}${auc ? " · 對盤 " + fmtP(iep) : ""}</p>
+          <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}${auc ? " · 對盤 " + fmtP(iep) : ""}${halted ? " · 停牌" : ""}</p>
           <div class="ohlc" id="ohlc" data-ohlc>${(() => {
             const bar = series.at(-1);
             const o = bar ? bar.o : q.last, h = bar ? Math.max(bar.h, q.last) : q.last, l = bar ? Math.min(bar.l, q.last) : q.last, c = q.last;
@@ -1505,15 +1652,6 @@
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
-          <div class="rr">
-            <div class="rr-cell" id="rr-long-box"><div class="cap">偏多盈虧比</div><div class="px mono" id="rr-long">—</div><div class="muted" id="rr-long-t"></div></div>
-            <div class="rr-cell" id="rr-short-box"><div class="cap">偏空盈虧比</div><div class="px mono" id="rr-short">—</div><div class="muted" id="rr-short-t"></div></div>
-          </div>
-          <div class="hints">
-            <div class="muted">實時盈虧比 · 技術提示 · 教學用途，非投資建議</div>
-            <div id="hints-live">${hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("")}</div>
-            <div id="pos-live" class="muted" style="margin-top:8px"></div>
-          </div>
           <div class="bidask" id="bidask">${auc ? `<div class="iep"><div class="cap">競價對盤價 IEP（掛盤待對盤，即時不成交）</div><div class="px mono" id="sel-iep">${fmtP(iep)}</div><div class="muted">${esc(sessionLabel(state.clock))}</div></div>` : `<div class="bid"><div class="cap">買入價 Bid（賣出成交）</div><div class="px mono" id="sel-bid">${fmtP(q.bid)}</div></div>
             <div class="ask"><div class="cap">賣出價 Ask（買入成交）</div><div class="px mono" id="sel-ask">${fmtP(q.ask)}</div></div>`}</div>
           <div class="ticket">
@@ -1522,9 +1660,23 @@
             <div class="muted" style="margin-top:10px">槓桿（最高 ${inst.lev}x）</div>
             <div class="lev bar">${[1, 2, 5, 10].filter((x) => x <= inst.lev).map((x) => `<button type="button" class="${state.lev === x ? "on" : ""}" data-lev="${x}">${x}x</button>`).join("")}</div>
             <div class="actions">
-              <button type="button" class="buy" id="buy" ${canAuc ? "" : "disabled"}>${auc ? "對盤買入 @ " + fmtP(iep) : "買入 @ " + fmtP(q.ask)}</button>
-              <button type="button" class="sell" id="sell" ${canAuc ? "" : "disabled"}>${auc ? "對盤賣出 @ " + fmtP(iep) : "賣出 @ " + fmtP(q.bid)}</button>
+              <button type="button" class="buy" id="buy" ${canAuc ? "" : "disabled"}>${halted ? "停牌" : auc ? "對盤買入 @ " + fmtP(iep) : "買入 @ " + fmtP(q.ask)}</button>
+              <button type="button" class="sell" id="sell" ${canAuc ? "" : "disabled"}>${halted ? "停牌" : auc ? "對盤賣出 @ " + fmtP(iep) : "賣出 @ " + fmtP(q.bid)}</button>
             </div>
+          </div>
+          ${isStock(inst) ? (() => {
+            const rep = state.reports && state.reports[inst.s];
+            const nxt = nextFin(inst.s, state.clock, false);
+            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.until.slice(5).replace("-", "/")} · ${esc(state.halt.reason)}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}<div class="muted">下次公布 ${nxt.key} · ${esc(nxt.period)}</div></div>`;
+          })() : ""}
+          <div class="rr">
+            <div class="rr-cell" id="rr-long-box"><div class="cap">偏多盈虧比</div><div class="px mono" id="rr-long">—</div><div class="muted" id="rr-long-t"></div></div>
+            <div class="rr-cell" id="rr-short-box"><div class="cap">偏空盈虧比</div><div class="px mono" id="rr-short">—</div><div class="muted" id="rr-short-t"></div></div>
+          </div>
+          <div class="hints">
+            <div class="muted">技術提示（3則）· 教學用途，非投資建議</div>
+            <div id="hints-live">${hs.map((h) => `<p class="${h[0] === "up" ? "up" : h[0] === "down" ? "down" : ""}"><b>${h[1]}</b><br><span class="muted">${h[2]}</span></p>`).join("")}</div>
+            <div id="pos-live" class="muted" style="margin-top:8px"></div>
           </div>
         </section>
         <section class="col">
