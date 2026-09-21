@@ -974,6 +974,37 @@
     }
     return gap * (0.55 + (1 - q) * 1.2);
   }
+  function applyBtcOvernight() {
+    const inst = BY.BTC;
+    const q = state.quotes.BTC;
+    if (!inst || !q) return 0;
+    const weekend = hkParts(state.clock).weekday === 1;
+    const scale = weekend ? 2.15 : 1.2;
+    let g = gauss() * inst.vol * 2.6 * scale;
+    if (Math.random() < (weekend ? 0.28 : 0.16)) {
+      g += (Math.random() < 0.5 ? 1 : -1) * (0.012 + Math.random() * 0.045) * scale;
+    }
+    const min = weekend ? 0.006 : 0.003;
+    if (Math.abs(g) < min) g = (g === 0 ? (Math.random() < 0.5 ? 1 : -1) : Math.sign(g)) * (min + Math.random() * min * 0.8);
+    g = Math.max(-0.12, Math.min(0.12, g));
+    const base = q.prev > 0 ? q.prev : q.last;
+    const last = rnd(Math.max(tickSize(base, inst), base * (1 + g)), inst);
+    const t = Math.max(5, tickSize(last, inst));
+    q.last = last;
+    q.bid = rnd(last - t, inst);
+    q.ask = rnd(last + t, inst);
+    q.o = last;
+    q.h = Math.max(q.h, last);
+    q.l = Math.min(q.l, last);
+    q.iep = last;
+    const realized = last / base - 1;
+    if (Math.abs(realized) >= 0.01) {
+      const pct = (realized >= 0 ? "+" : "−") + (Math.abs(realized) * 100).toFixed(1) + "%";
+      const why = weekend ? "周末及美股時段加密貨幣持續交易" : "美股盤中及夜市帶動加密貨幣報價";
+      state.news = "Bitcoin 過夜" + (realized >= 0 ? "高開" : "低開") + " " + pct + "。" + why + "。";
+    }
+    return realized;
+  }
   function beginAuc(kind) {
     const tgt = {};
     for (const i of UNIVERSE) {
@@ -1155,6 +1186,8 @@
       state.news = inst.n + "（" + inst.s + "）停牌。" + state.halt.reason + "。預計 " + state.halt.until.slice(5).replace("-", "/") + " 復牌。";
     }
     rollQuotesDay();
+    const btcGap = applyBtcOvernight();
+    if (Math.abs(btcGap) > 1e-9) gapAdj["0434"] = (gapAdj["0434"] || 0) + btcGap * 0.45;
     state.auction = rollAuction(state.clock);
     beginAuc("open");
     for (const s of Object.keys(gapAdj)) {
@@ -1293,7 +1326,7 @@
       q.ask = rnd(last + t, btc);
       q.h = Math.max(q.h, last);
       q.l = Math.min(q.l, last);
-      pushC("BTC", last);
+      pushC("BTC", last, gapOpen);
     }
     for (const i of UNIVERSE) {
       if (i.s === "HSI" || i.s === "2800" || i.k === "crypto") continue;

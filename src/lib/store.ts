@@ -5,6 +5,7 @@ import {
   STARTING_CASH,
   UNIVERSE,
   BY_SYMBOL,
+  BOYAA_SYMBOL,
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
@@ -41,6 +42,7 @@ import {
 import {
   advanceClock,
   auctionGapNews,
+  applyCryptoOvernight,
   beginAuctionSession,
   canEnterAuctionOrders,
   hkDayKey,
@@ -408,9 +410,14 @@ function openTradingDay(
     }
   }
   const rolledQuotes = rollDay(quotes);
+  const crypto = applyCryptoOvernight(rolledQuotes, clock);
+  if (Math.abs(crypto.btcGap) > 1e-9) {
+    gapAdj[BOYAA_SYMBOL] = (gapAdj[BOYAA_SYMBOL] ?? 0) + crypto.btcGap * 0.45;
+  }
+  if (crypto.news) extraNews.push(crypto.news);
   const auction = rollAuctionBook(clock);
   const ctx = marketCtx(nextHalt, dayKey, gapAdj);
-  const started = beginAuctionSession(rolledQuotes, auction, "open", ctx);
+  const started = beginAuctionSession(crypto.quotes, auction, "open", ctx);
   return {
     quotes: started.quotes,
     auction: started.book,

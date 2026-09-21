@@ -525,6 +525,57 @@ function overnightGap(inst: Instrument): number {
   return gap * (0.55 + (1 - q) * 1.2);
 }
 
+/** HK 休市期間 BTC 仍跟美股／環球加密盤走，翌日港股開市必須重訂價。 */
+export function applyCryptoOvernight(
+  quotes: Record<string, Quote>,
+  clock: number,
+): { quotes: Record<string, Quote>; btcGap: number; news: NewsItem | null } {
+  const inst = BY_SYMBOL[BTC_SYMBOL];
+  const q = quotes[BTC_SYMBOL];
+  if (!inst || !q) return { quotes, btcGap: 0, news: null };
+  const weekend = hkParts(clock).weekday === 1;
+  const scale = weekend ? 2.15 : 1.2;
+  let g = gauss() * inst.vol * 2.6 * scale;
+  if (Math.random() < (weekend ? 0.28 : 0.16)) {
+    g += (Math.random() < 0.5 ? 1 : -1) * (0.012 + Math.random() * 0.045) * scale;
+  }
+  const min = weekend ? 0.006 : 0.003;
+  if (Math.abs(g) < min) {
+    g = (g === 0 ? (Math.random() < 0.5 ? 1 : -1) : Math.sign(g)) * (min + Math.random() * min * 0.8);
+  }
+  g = Math.max(-0.12, Math.min(0.12, g));
+  const base = q.prevClose > 0 ? q.prevClose : q.last;
+  const last = roundTick(Math.max(tickSize(base, "crypto"), base * (1 + g)), "crypto");
+  const sp = applySpread(inst, last);
+  const next: Record<string, Quote> = {
+    ...quotes,
+    [BTC_SYMBOL]: {
+      ...q,
+      last: sp.last,
+      bid: sp.bid,
+      ask: sp.ask,
+      open: sp.last,
+      high: Math.max(q.high, sp.last),
+      low: Math.min(q.low, sp.last),
+      iep: sp.last,
+    },
+  };
+  const realized = sp.last / base - 1;
+  let news: NewsItem | null = null;
+  if (Math.abs(realized) >= 0.01) {
+    const pct = `${realized >= 0 ? "+" : "−"}${(Math.abs(realized) * 100).toFixed(1)}%`;
+    const why = weekend ? "周末及美股時段加密貨幣持續交易" : "美股盤中及夜市帶動加密貨幣報價";
+    news = {
+      id: `btc-ovn-${hkDayKey(clock)}`,
+      text: `Bitcoin 過夜${realized >= 0 ? "高開" : "低開"} ${pct}。${why}。`,
+      at: clock,
+      symbol: BTC_SYMBOL,
+      sign: realized >= 0 ? 1 : -1,
+    };
+  }
+  return { quotes: next, btcGap: realized, news };
+}
+
 export function beginAuctionSession(
   quotes: Record<string, Quote>,
   book: AuctionBook,

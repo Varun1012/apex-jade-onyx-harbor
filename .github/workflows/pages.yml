@@ -42,6 +42,8 @@ jobs:
           grep -q "repairQuotesFromCandles" app.js
           grep -q "開市競價" app.js
           grep -q "冷靜期" app.js
+          grep -q "applyBtcOvernight" app.js
+          grep -q "美股盤中" app.js
           grep -q "data-div" app.js
           grep -q "派息日" app.js
           grep -q "停牌" app.js
