@@ -29,6 +29,10 @@ jobs:
           grep -q "0293" app.js
           grep -q "2269" app.js
           grep -q "2899" app.js
+          grep -q "0020" app.js
+          grep -q "0981" app.js
+          grep -q "1888" app.js
+          grep -q "2513" app.js
           grep -q "market-ticker.mp3" app.js
           grep -q "rollExtreme" app.js
           grep -q "暴升" app.js
