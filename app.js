@@ -522,6 +522,13 @@
   function fmtPct(n) {
     return (n > 0 ? "+" : n < 0 ? "−" : "") + (Math.abs(n) * 100).toFixed(2) + "%";
   }
+  function dayPnlLabel() {
+    const eq = equity();
+    const base = state.dayEq > 0 ? state.dayEq : eq;
+    const pnl = eq - base;
+    const pct = base > 0 ? pnl / base : 0;
+    return { eq, pnl, text: "今日 " + (pnl > 0 ? "+" : "") + fmtH(pnl) + " · " + fmtPct(pct) };
+  }
   function fmtTime(ms) {
     return new Intl.DateTimeFormat("zh-HK", {
       timeZone: "Asia/Hong_Kong",
@@ -692,6 +699,10 @@
       reports: null,
       earnFired: {},
       dividends: null,
+      dayEq: START,
+      dayKey: "",
+      extGap: null,
+      extDay: "",
     };
   }
 
@@ -832,6 +843,8 @@
           reports: s.reports || null,
           earnFired: s.earnFired || {},
           dividends: s.dividends || null,
+          dayEq: typeof s.dayEq === "number" && s.dayEq > 0 ? s.dayEq : 0,
+          dayKey: typeof s.dayKey === "string" ? s.dayKey : "",
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -845,12 +858,19 @@
   if (!state.dividends) state.dividends = seedDivs(state.clock, state.reports);
   else state.dividends = { ...seedDivs(state.clock, state.reports), ...state.dividends };
   if (sessionPhase(state.clock) === "open-input" && (!state.auction.tgt || !Object.keys(state.auction.tgt).length)) {
+    const ext = ensureExt();
     beginAuc("open");
+    const line = externalHeadline(ext);
+    if (line && state.news.indexOf("公司公告") < 0) state.news = line;
   }
   state.candles = expandCandles(savedCandles, state.quotes, state.clock);
   dropPremature(state.candles, state.clock);
   adoptForming(state.candles, state.clock);
   repairQuotesFromCandles(state.quotes, state.candles);
+  if (!(state.dayEq > 0) || !state.dayKey) {
+    state.dayEq = equity();
+    state.dayKey = dayKey(state.clock);
+  }
 
   function compactQuotes(quotes) {
     const out = {};
@@ -884,6 +904,8 @@
       quotes: compactQuotes(state.quotes),
       candles: compactCandles(state.candles),
       news: state.news,
+      dayEq: state.dayEq,
+      dayKey: state.dayKey,
     };
   }
   let persistTimer = null;
@@ -1008,6 +1030,7 @@
     };
   }
   function overnightGap(inst) {
+    if (inst.k === "index") return 0;
     const q = FUND[inst.s] ?? 0.5;
     let gap = gauss() * inst.vol * 1.6;
     if (Math.random() < 0.1) {
@@ -1015,6 +1038,43 @@
       gap += (Math.random() < 0.5 ? 1 : -1) * mag;
     }
     return gap * (0.55 + (1 - q) * 1.2);
+  }
+  function rollExternalGap() {
+    const monday = hkParts(state.clock).weekday === 1;
+    const scale = monday ? 1.45 : 1;
+    const r = Math.random();
+    let g;
+    if (r < 0.42) g = -(0.007 + Math.random() * 0.018) * scale;
+    else if (r < 0.6) g = (0.0045 + Math.random() * 0.012) * scale;
+    else g = (gauss() * 0.0038 - 0.0008) * scale;
+    if (Math.abs(g) < 0.0018) {
+      const sign = g < 0 || Math.random() < 0.55 ? -1 : 1;
+      g = sign * (0.0018 + Math.random() * 0.0022);
+    }
+    const lo = monday ? -0.038 : -0.028;
+    const hi = monday ? 0.026 : 0.02;
+    return Math.max(lo, Math.min(hi, g));
+  }
+  function stockExt(beta, ext) {
+    const b = Math.min(1.6, Math.max(0.3, beta || 1));
+    return ext * (0.72 + 0.28 * b);
+  }
+  function ensureExt() {
+    const dk = dayKey(state.clock);
+    if (state.extDay === dk && typeof state.extGap === "number") return state.extGap;
+    state.extGap = rollExternalGap();
+    state.extDay = dk;
+    return state.extGap;
+  }
+  function externalHeadline(ext) {
+    if (Math.abs(ext) < 0.0045) return "";
+    const monday = hkParts(state.clock).weekday === 1;
+    const down = ext < 0;
+    const pct = (down ? "−" : "+") + (Math.abs(ext) * 100).toFixed(2) + "%";
+    const why = down
+      ? (monday ? "周末美股及期指偏弱，外圍拖累港股" : "隔夜美股及期指走低，外圍拖累港股")
+      : (monday ? "周末外圍造好，帶動港股高開" : "隔夜美股及期指造好，帶動港股高開");
+    return "恒生指數受外圍影響" + (down ? "低開" : "高開") + " " + pct + "。" + why + "。";
   }
   function applyBtcOvernight() {
     const inst = BY.BTC;
@@ -1058,8 +1118,12 @@
       }
       const base = kind === "open" ? q.prev : q.last;
       let g;
-      if (kind === "open") g = overnightGap(i);
-      else {
+      if (kind === "open") {
+        const ext = state.extGap || 0;
+        if (i.k === "index") g = ext;
+        else if (isStock(i)) g = overnightGap(i) + stockExt(i.beta, ext);
+        else g = overnightGap(i);
+      } else {
         g = gauss() * i.vol * 0.7;
         const min = i.k === "index" ? 0.0007 : 0.0012;
         if (Math.abs(g) < min) g = (Math.random() < 0.5 ? 1 : -1) * (min + Math.random() * min);
@@ -1148,6 +1212,10 @@
 
   function openDay() {
     const dk = dayKey(state.clock);
+    if (state.dayKey !== dk) {
+      state.dayEq = equity();
+      state.dayKey = dk;
+    }
     const gapAdj = {};
     if (!state.dividends) state.dividends = {};
     if (state.halt && state.halt.lifted) {
@@ -1238,13 +1306,16 @@
     rollQuotesDay();
     const btcGap = applyBtcOvernight();
     if (Math.abs(btcGap) > 1e-9) gapAdj["0434"] = (gapAdj["0434"] || 0) + btcGap * 0.45;
+    const ext = ensureExt();
+    const extLine = externalHeadline(ext);
+    if (extLine && state.news.indexOf("公司公告") < 0) state.news = extLine;
     state.auction = rollAuction(state.clock);
     beginAuc("open");
     for (const s of Object.keys(gapAdj)) {
       const inst = BY[s], q = state.quotes[s];
       if (!inst || !q || haltedNow(s)) continue;
-      const raw = q.prev * (1 + gapAdj[s]);
-      state.auction.tgt[s] = rnd(raw, inst);
+      const basePx = state.auction.tgt[s] > 0 ? state.auction.tgt[s] : q.prev;
+      state.auction.tgt[s] = rnd(basePx * (1 + gapAdj[s]), inst);
     }
   }
 
@@ -1350,7 +1421,15 @@
     const ev = state.extreme && state.extreme.event;
     if (ev && !ev.fired && haltedNow(ev.s)) ev.fired = true;
     const due = ev && !ev.fired && state.clock >= ev.fireAt;
-    if (!due && Math.random() < 0.028) {
+    let sessionExt = 0;
+    if (!due && Math.random() < 0.0016) {
+      const down = Math.random() < 0.62;
+      sessionExt = (down ? -1 : 1) * (0.004 + Math.random() * 0.01);
+      const pct = (down ? "−" : "+") + (Math.abs(sessionExt) * 100).toFixed(1) + "%";
+      state.news = down
+        ? "外圍突然轉弱，拖累恒指約 " + pct + "。高貝塔股份跟隨回吐。"
+        : "外圍反彈，帶動恒指約 " + pct + "。";
+    } else if (!due && Math.random() < 0.028) {
       const n = NEWS[Math.floor(Math.random() * NEWS.length)];
       state.news = n.t;
       newsBias = n.b * 0.004;
@@ -1397,6 +1476,7 @@
         toast(ev.text);
       } else {
         let jump = shock * i.beta + gauss() * i.vol * 0.18 * volBoost(i.s) + extra;
+        if (sessionExt) jump += stockExt(i.beta, sessionExt);
         if (i.s === "0434") {
           if (due && ev.s === "BTC") jump += ev.sign * ev.mag * 0.45;
           else jump += btcReturn * 0.5;
@@ -1654,13 +1734,13 @@
     }
     const cashEl = document.getElementById("cash-v");
     if (cashEl) cashEl.textContent = fmtH(state.cash);
-    const eq = equity(), pnl = eq - START;
+    const live = dayPnlLabel();
     const eqEl = document.getElementById("eq-v");
-    if (eqEl) eqEl.textContent = fmtH(eq);
+    if (eqEl) eqEl.textContent = fmtH(live.eq);
     const pnlEl = document.getElementById("eq-pnl");
     if (pnlEl) {
-      pnlEl.textContent = fmtH(pnl);
-      pnlEl.className = pnl >= 0 ? "up" : "down";
+      pnlEl.textContent = live.text;
+      pnlEl.className = live.pnl >= 0 ? "up" : "down";
     }
     const newsBar = document.getElementById("news-bar");
     if (newsBar) {
@@ -1838,7 +1918,8 @@
   }
 
   function render() {
-    const inst = BY[state.sel], q = state.quotes[state.sel], eq = equity(), pnl = eq - START, hsi = state.quotes.HSI;
+    const inst = BY[state.sel], q = state.quotes[state.sel], live = dayPnlLabel(), hsi = state.quotes.HSI;
+    const eq = live.eq, pnl = live.pnl;
     const hsich = (hsi.last - hsi.prev) / hsi.prev;
     const chg = (q.last - q.prev) / q.prev;
     const auc = usesAuc(inst) && isAuction(state.clock);
@@ -1867,7 +1948,7 @@
           <div class="stat"><label>模擬時間（香港）</label><div class="v mono" id="sim-clock">${esc(fmtTime(state.clock))}</div><small id="sim-phase">${esc(sessionLabel(state.clock))}</small></div>
           <div class="stat"><label>恒生指數</label><div class="v mono" id="hsi-last">${hsi.last.toLocaleString("en-HK")}</div><small id="hsi-chg" class="${hsich >= 0 ? "up" : "down"}">${fmtPct(hsich)}</small></div>
           <div class="stat"><label>現金</label><div class="v mono" id="cash-v">${fmtH(state.cash)}</div></div>
-          <div class="stat"><label>總資產</label><div class="v mono" id="eq-v">${fmtH(eq)}</div><small id="eq-pnl" class="${pnl >= 0 ? "up" : "down"}">${fmtH(pnl)}</small></div>
+          <div class="stat"><label>總資產</label><div class="v mono" id="eq-v">${fmtH(eq)}</div><small id="eq-pnl" class="${pnl >= 0 ? "up" : "down"}">${live.text}</small></div>
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
         </div>
       </header>

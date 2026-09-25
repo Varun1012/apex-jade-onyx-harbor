@@ -191,15 +191,18 @@ function EquityStat() {
   const cash = useDesk((s) => s.cash);
   const positions = useDesk((s) => s.positions);
   const quotes = useDesk((s) => s.quotes);
+  const dayEquity = useDesk((s) => s.dayEquity);
   const equity = equityOf(cash, positions, quotes);
-  const pnl = equity - STARTING_CASH;
+  const base = dayEquity > 0 ? dayEquity : equity;
+  const pnl = equity - base;
   return (
     <Stat
       label="總資產"
       value={formatHkd(equity)}
       sub={
         <Signed n={pnl}>
-          {formatHkd(pnl)} · {formatPct(pnl / STARTING_CASH)}
+          今日 {pnl > 0 ? "+" : ""}
+          {formatHkd(pnl)} · {formatPct(base > 0 ? pnl / base : 0)}
         </Signed>
       }
     />

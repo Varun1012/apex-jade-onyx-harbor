@@ -47,6 +47,8 @@ import {
   applyPriceShock,
   beginAuctionSession,
   canEnterAuctionOrders,
+  externalOvernightNews,
+  externalStockGap,
   hkDayKey,
   isClockOn,
   isContinuous,
@@ -54,6 +56,7 @@ import {
   nextMarketOpen,
   rollAuctionBook,
   rollDay,
+  rollExternalGap,
   rollExtremeEvent,
   seedQuotes,
   sessionPhase,
@@ -116,6 +119,8 @@ type DeskState = {
   reports: Record<string, Report>;
   earnFired: Record<string, boolean>;
   dividends: Record<string, Dividend>;
+  dayEquity: number;
+  dayEquityKey: string;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -165,7 +170,16 @@ function mergeQuotes(existing: Record<string, Quote>): Record<string, Quote> {
 function initial() {
   const quotes0 = seedQuotes();
   const clock = seedClock();
-  const started = beginAuctionSession(quotes0, rollAuctionBook(clock), "open");
+  const ext = rollExternalGap(clock);
+  const gapAdj: Record<string, number> = { HSI: ext };
+  for (const inst of UNIVERSE) {
+    if (inst.kind === "stock") gapAdj[inst.symbol] = externalStockGap(inst.beta, ext);
+  }
+  const started = beginAuctionSession(quotes0, rollAuctionBook(clock), "open", {
+    halted: new Set(),
+    gapAdj,
+  });
+  const extNews = externalOvernightNews(ext, clock);
   return {
     cash: STARTING_CASH,
     clock,
@@ -174,7 +188,7 @@ function initial() {
     candles: seedCandles(started.quotes, clock),
     positions: [] as Position[],
     fills: [] as Fill[],
-    news: [] as NewsItem[],
+    news: extNews ? [extNews] : [],
     speed: 1 as Speed,
     selected: "0700",
     won: false,
@@ -192,6 +206,8 @@ function initial() {
       seedReports(clock),
       Object.fromEntries(UNIVERSE.map((i) => [i.symbol, started.quotes[i.symbol]?.last ?? i.start])),
     ),
+    dayEquity: STARTING_CASH,
+    dayEquityKey: hkDayKey(clock),
   };
 }
 
@@ -420,6 +436,14 @@ function openTradingDay(
     gapAdj[BOYAA_SYMBOL] = (gapAdj[BOYAA_SYMBOL] ?? 0) + crypto.btcGap * 0.45;
   }
   if (crypto.news) extraNews.push(crypto.news);
+  const ext = rollExternalGap(clock);
+  gapAdj.HSI = (gapAdj.HSI ?? 0) + ext;
+  for (const inst of UNIVERSE) {
+    if (inst.kind !== "stock") continue;
+    gapAdj[inst.symbol] = (gapAdj[inst.symbol] ?? 0) + externalStockGap(inst.beta, ext);
+  }
+  const extNews = externalOvernightNews(ext, clock);
+  if (extNews) extraNews.unshift(extNews);
   const auction = rollAuctionBook(clock);
   const ctx = marketCtx(nextHalt, dayKey, gapAdj, clock);
   const started = beginAuctionSession(crypto.quotes, auction, "open", ctx);
@@ -522,7 +546,7 @@ export const useDesk = create<DeskState>()(
         let clock = advanceClock(st.clock, 1);
         if (!isClockOn(clock)) clock = nextMarketOpen(clock);
         const p = hkParts(clock);
-        const dayKey = hkDayKey(clock);
+        let dayKey = hkDayKey(clock);
         let quotes = st.quotes;
         let auction = st.auction ?? rollAuctionBook(clock);
         let pending = st.pending;
@@ -555,6 +579,17 @@ export const useDesk = create<DeskState>()(
         };
         const extraNews: NewsItem[] = [];
         let resumePrint = false;
+        let dayEquity = st.dayEquity;
+        let dayEquityKey = st.dayEquityKey ?? "";
+        if (!(dayEquity > 0) || !dayEquityKey) {
+          dayEquity = equityOf(cash, positions, quotes);
+          dayEquityKey = dayKey;
+        }
+        const stampDay = () => {
+          if (dayEquityKey === dayKey) return;
+          dayEquity = equityOf(cash, positions, quotes);
+          dayEquityKey = dayKey;
+        };
 
         if (auction.dayKey !== dayKey) {
           auction = rollAuctionBook(clock);
@@ -563,6 +598,7 @@ export const useDesk = create<DeskState>()(
         let ctx = marketCtx(halt, dayKey, undefined, clock);
 
         if (p.hour === 9 && p.minute === 0) {
+          stampDay();
           const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
           quotes = opened.quotes;
           auction = opened.auction;
@@ -623,6 +659,8 @@ export const useDesk = create<DeskState>()(
           }
           if (closeMatch) {
             clock = nextMarketOpen(clock);
+            dayKey = hkDayKey(clock);
+            stampDay();
             const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
             quotes = opened.quotes;
             auction = opened.auction;
@@ -671,6 +709,8 @@ export const useDesk = create<DeskState>()(
             reports,
             earnFired,
             dividends,
+            dayEquity,
+            dayEquityKey,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
@@ -699,6 +739,8 @@ export const useDesk = create<DeskState>()(
           reports,
           earnFired,
           dividends,
+          dayEquity,
+          dayEquityKey,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -885,6 +927,8 @@ export const useDesk = create<DeskState>()(
         reports: s.reports,
         earnFired: s.earnFired,
         dividends: s.dividends,
+        dayEquity: s.dayEquity,
+        dayEquityKey: s.dayEquityKey,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({

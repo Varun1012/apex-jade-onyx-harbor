@@ -373,7 +373,21 @@ export function stepMarket(
     clock >= extreme.event.fireAt &&
     Boolean(extreme.event.symbol);
 
-  if (!due && Math.random() < 0.035) {
+  let sessionExt = 0;
+  if (!due && Math.random() < 0.0016) {
+    const down = Math.random() < 0.62;
+    sessionExt = (down ? -1 : 1) * (0.004 + Math.random() * 0.01);
+    const pct = `${down ? "−" : "+"}${(Math.abs(sessionExt) * 100).toFixed(1)}%`;
+    news = {
+      id: `${clock}-ext`,
+      text: down
+        ? `外圍突然轉弱，拖累恒指約 ${pct}。高貝塔股份跟隨回吐。`
+        : `外圍反彈，帶動恒指約 ${pct}。`,
+      at: clock,
+      symbol: "HSI",
+      sign: down ? -1 : 1,
+    };
+  } else if (!due && Math.random() < 0.035) {
     const n = NEWS_POOL[Math.floor(Math.random() * NEWS_POOL.length)]!;
     news = { id: `${clock}-${Math.random().toString(36).slice(2, 7)}`, text: n.text, at: clock };
     newsBias = n.bias * (0.6 + Math.random() * 0.8);
@@ -442,6 +456,7 @@ export function stepMarket(
       const anchor = q.prevClose > 0 ? q.prevClose : inst.start;
       const meanRev = ((anchor - q.last) / anchor) * 0.004;
       let jump = shock * inst.beta + idio + meanRev;
+      if (sessionExt) jump += externalStockGap(inst.beta, sessionExt);
       if (focus && inst.symbol === focus) jump += newsBias * 0.04;
       else if (news) jump += newsBias * 0.01 * inst.beta;
       if (inst.symbol === BOYAA_SYMBOL) {
@@ -540,6 +555,7 @@ function closeAuctionGap(inst: Instrument): number {
 }
 
 function overnightGap(inst: Instrument): number {
+  if (inst.kind === "index") return 0;
   const q = fundamentalScore(inst.symbol);
   let gap = gauss() * inst.vol * 1.6;
   if (Math.random() < 0.1) {
@@ -547,6 +563,51 @@ function overnightGap(inst: Instrument): number {
     gap += (Math.random() < 0.5 ? 1 : -1) * mag;
   }
   return gap * (0.55 + (1 - q) * 1.2);
+}
+
+/** 港股休市時美股及期指仍在走。正數造好，負數為外圍拖累。 */
+export function rollExternalGap(clock: number): number {
+  const monday = hkParts(clock).weekday === 1;
+  const scale = monday ? 1.45 : 1;
+  const r = Math.random();
+  let g: number;
+  if (r < 0.42) g = -(0.007 + Math.random() * 0.018) * scale;
+  else if (r < 0.6) g = (0.0045 + Math.random() * 0.012) * scale;
+  else g = (gauss() * 0.0038 - 0.0008) * scale;
+  if (Math.abs(g) < 0.0018) {
+    const sign = g < 0 || Math.random() < 0.55 ? -1 : 1;
+    g = sign * (0.0018 + Math.random() * 0.0022);
+  }
+  const lo = monday ? -0.038 : -0.028;
+  const hi = monday ? 0.026 : 0.02;
+  return Math.max(lo, Math.min(hi, g));
+}
+
+/** 個股跟外圍的幅度按貝塔縮放，貝塔 1 約等於恒指缺口。 */
+export function externalStockGap(beta: number, ext: number): number {
+  const b = Math.min(1.6, Math.max(0.3, beta));
+  return ext * (0.72 + 0.28 * b);
+}
+
+export function externalOvernightNews(gap: number, clock: number): NewsItem | null {
+  if (Math.abs(gap) < 0.0045) return null;
+  const monday = hkParts(clock).weekday === 1;
+  const down = gap < 0;
+  const pct = `${down ? "−" : "+"}${(Math.abs(gap) * 100).toFixed(2)}%`;
+  const why = down
+    ? monday
+      ? "周末美股及期指偏弱，外圍拖累港股"
+      : "隔夜美股及期指走低，外圍拖累港股"
+    : monday
+      ? "周末外圍造好，帶動港股高開"
+      : "隔夜美股及期指造好，帶動港股高開";
+  return {
+    id: `ext-${hkDayKey(clock)}`,
+    text: `恒生指數受外圍影響${down ? "低開" : "高開"} ${pct}。${why}。`,
+    at: clock,
+    symbol: "HSI",
+    sign: down ? -1 : 1,
+  };
 }
 
 /** HK 休市期間 BTC 仍跟美股／環球加密盤走，翌日港股開市必須重訂價。 */
