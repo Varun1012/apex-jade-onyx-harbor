@@ -605,6 +605,10 @@ export function volumeUnit(inst: Instrument): number {
 
 export const NEWS_POOL: { text: string; bias: number; focus?: string }[] = [
   { text: "北水持續淨流入，港股氣氛轉旺", bias: 0.45 },
+  { text: "人民銀行宣布下調存款準備金率，港股及內地相關股份齊升", bias: 0.65 },
+  { text: "國務院推出新一輪穩增長措施，內地政策預期帶動港股", bias: 0.6 },
+  { text: "內地官方製造業PMI回落至收縮區間，港股受壓", bias: -0.55 },
+  { text: "港股通南向資金單日大額淨流出，本港氣氛轉弱", bias: -0.5 },
   { text: "聯儲局官員放鴿，資金重新追逐風險資產", bias: 0.55 },
   { text: "內地公布消費補貼細節，零售與互聯網受捧", bias: 0.4, focus: "3690" },
   { text: "騰訊遊戲版號獲批，科技股急彈", bias: 0.7, focus: "0700" },

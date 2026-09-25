@@ -422,6 +422,10 @@
   }
   const NEWS = [
     { t: "北水持續淨流入，港股氣氛轉旺", b: 0.45 },
+    { t: "人民銀行宣布下調存款準備金率，港股及內地相關股份齊升", b: 0.65 },
+    { t: "國務院推出新一輪穩增長措施，內地政策預期帶動港股", b: 0.6 },
+    { t: "內地官方製造業PMI回落至收縮區間，港股受壓", b: -0.55 },
+    { t: "港股通南向資金單日大額淨流出，本港氣氛轉弱", b: -0.5 },
     { t: "聯儲局官員放鴿，資金重新追逐風險資產", b: 0.55 },
     { t: "騰訊遊戲版號獲批，科技股急彈", b: 0.7, f: "0700" },
     { t: "阿里雲簽下大型企業合約，電商板塊跟漲", b: 0.5, f: "9988" },
@@ -1055,6 +1059,12 @@
     const hi = monday ? 0.026 : 0.02;
     return Math.max(lo, Math.min(hi, g));
   }
+  function localIndexShock(text, focus, signed) {
+    if (!signed || focus === "BTC") return 0;
+    if (/聯儲|地緣|比特幣|美股|通脹預期/.test(text)) return 0;
+    const mag = signed * (focus ? 0.0055 : 0.01);
+    return Math.max(-0.013, Math.min(0.013, mag));
+  }
   function stockExt(beta, ext) {
     const b = Math.min(1.6, Math.max(0.3, beta || 1));
     return ext * (0.72 + 0.28 * b);
@@ -1422,6 +1432,7 @@
     if (ev && !ev.fired && haltedNow(ev.s)) ev.fired = true;
     const due = ev && !ev.fired && state.clock >= ev.fireAt;
     let sessionExt = 0;
+    let localMkt = 0;
     if (!due && Math.random() < 0.0016) {
       const down = Math.random() < 0.62;
       sessionExt = (down ? -1 : 1) * (0.004 + Math.random() * 0.01);
@@ -1431,9 +1442,15 @@
         : "外圍反彈，帶動恒指約 " + pct + "。";
     } else if (!due && Math.random() < 0.028) {
       const n = NEWS[Math.floor(Math.random() * NEWS.length)];
-      state.news = n.t;
+      const intensity = n.b * (0.85 + Math.random() * 0.5);
       newsBias = n.b * 0.004;
       newsFocus = n.f || null;
+      localMkt = localIndexShock(n.t, n.f, intensity);
+      state.news = n.t;
+      if (Math.abs(localMkt) >= 0.0015) {
+        const pct = (localMkt > 0 ? "+" : "−") + (Math.abs(localMkt) * 100).toFixed(2) + "%";
+        state.news = n.t + "。恒指受港股及內地消息" + (localMkt > 0 ? "帶動 " : "拖累 ") + pct + "。";
+      }
     }
     let btcReturn = 0;
     const btc = BY.BTC;
@@ -1467,7 +1484,7 @@
       if (i.s === "HSI" || i.s === "2800" || i.k === "crypto") continue;
       if (haltedNow(i.s)) continue;
       const q = state.quotes[i.s];
-      const extra = newsFocus === i.s ? newsBias * 2.4 : newsBias * i.beta;
+      const extra = newsFocus === i.s ? newsBias * 2.4 : localMkt ? 0 : newsBias * i.beta;
       let raw;
       if (due && i.s === ev.s) {
         raw = q.last * (1 + ev.sign * ev.mag);
@@ -1477,6 +1494,7 @@
       } else {
         let jump = shock * i.beta + gauss() * i.vol * 0.18 * volBoost(i.s) + extra;
         if (sessionExt) jump += stockExt(i.beta, sessionExt);
+        if (localMkt) jump += stockExt(i.beta, localMkt);
         if (i.s === "0434") {
           if (due && ev.s === "BTC") jump += ev.sign * ev.mag * 0.45;
           else jump += btcReturn * 0.5;

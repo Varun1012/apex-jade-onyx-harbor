@@ -374,6 +374,7 @@ export function stepMarket(
     Boolean(extreme.event.symbol);
 
   let sessionExt = 0;
+  let localMkt = 0;
   if (!due && Math.random() < 0.0016) {
     const down = Math.random() < 0.62;
     sessionExt = (down ? -1 : 1) * (0.004 + Math.random() * 0.01);
@@ -389,9 +390,21 @@ export function stepMarket(
     };
   } else if (!due && Math.random() < 0.035) {
     const n = NEWS_POOL[Math.floor(Math.random() * NEWS_POOL.length)]!;
-    news = { id: `${clock}-${Math.random().toString(36).slice(2, 7)}`, text: n.text, at: clock };
     newsBias = n.bias * (0.6 + Math.random() * 0.8);
     focus = n.focus;
+    localMkt = localIndexShock(n.text, n.focus, newsBias);
+    let text = n.text;
+    if (Math.abs(localMkt) >= 0.0015) {
+      const pct = `${localMkt > 0 ? "+" : "−"}${(Math.abs(localMkt) * 100).toFixed(2)}%`;
+      text += `。恒指受港股及內地消息${localMkt > 0 ? "帶動" : "拖累"} ${pct}。`;
+    }
+    news = {
+      id: `${clock}-${Math.random().toString(36).slice(2, 7)}`,
+      text,
+      at: clock,
+      symbol: Math.abs(localMkt) >= 0.0015 ? "HSI" : n.focus,
+      sign: localMkt > 0 ? 1 : localMkt < 0 ? -1 : undefined,
+    };
   }
 
   const next: Record<string, Quote> = { ...quotes };
@@ -457,8 +470,9 @@ export function stepMarket(
       const meanRev = ((anchor - q.last) / anchor) * 0.004;
       let jump = shock * inst.beta + idio + meanRev;
       if (sessionExt) jump += externalStockGap(inst.beta, sessionExt);
+      if (localMkt) jump += externalStockGap(inst.beta, localMkt);
+      else if (news && !(focus && inst.symbol === focus)) jump += newsBias * 0.01 * inst.beta;
       if (focus && inst.symbol === focus) jump += newsBias * 0.04;
-      else if (news) jump += newsBias * 0.01 * inst.beta;
       if (inst.symbol === BOYAA_SYMBOL) {
         if (due && extreme!.event!.symbol === BTC_SYMBOL) {
           jump += extreme!.event!.sign * extreme!.event!.mag * 0.45;
@@ -475,7 +489,7 @@ export function stepMarket(
   const base = weighted.reduce((s, i) => s + i.start * i.weight, 0);
   const now = weighted.reduce((s, i) => s + (next[i.symbol]?.last ?? i.start) * i.weight, 0);
   const implied = hsiInst.start * (now / base);
-  const hsiJump = news && !focus && !news?.extreme ? newsBias * 80 : gauss() * 12;
+  const hsiJump = localMkt ? gauss() * 8 : news && !focus && !news?.extreme ? newsBias * 80 : gauss() * 12;
   hsiLast = implied * 0.85 + hsiLast * 0.15 + hsiJump;
   writeQuote(next, nextHist, histories, hsiInst, quotes, hsiLast);
 
@@ -583,7 +597,13 @@ export function rollExternalGap(clock: number): number {
   return Math.max(lo, Math.min(hi, g));
 }
 
-/** 個股跟外圍的幅度按貝塔縮放，貝塔 1 約等於恒指缺口。 */
+/** 港股／內地消息對恒指的牽動（小數回報）。外圍及加密消息不走這條。 */
+export function localIndexShock(text: string, focus: string | undefined, signed: number): number {
+  if (!signed || focus === BTC_SYMBOL) return 0;
+  if (/聯儲|地緣|比特幣|美股|通脹預期/.test(text)) return 0;
+  const mag = signed * (focus ? 0.0055 : 0.01);
+  return Math.max(-0.013, Math.min(0.013, mag));
+}
 export function externalStockGap(beta: number, ext: number): number {
   const b = Math.min(1.6, Math.max(0.3, beta));
   return ext * (0.72 + 0.28 * b);
