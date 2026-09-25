@@ -17,6 +17,7 @@ import {
   haltNews,
   haltSet,
   isHalted,
+  maybeValueRevert,
   publishReport,
   resultsDueToday,
   resumeGap,
@@ -444,6 +445,18 @@ function openTradingDay(
   }
   const extNews = externalOvernightNews(ext, clock);
   if (extNews) extraNews.unshift(extNews);
+  const hsiQ = quotes.HSI;
+  const hsiInst = BY_SYMBOL.HSI;
+  if (hsiQ && hsiInst) {
+    const lasts = Object.fromEntries(UNIVERSE.map((i) => [i.symbol, quotes[i.symbol]?.last ?? i.start]));
+    const revert = maybeValueRevert(clock, lasts, nextReports, hsiQ.last, hsiQ.prevClose, hsiInst.start);
+    for (const [sym, g] of Object.entries(revert.gaps)) {
+      gapAdj[sym] = (gapAdj[sym] ?? 0) + g;
+    }
+    if (revert.text) {
+      extraNews.unshift({ id: `val-${dayKey}`, text: revert.text, at: clock, symbol: "HSI", sign: -1 });
+    }
+  }
   const auction = rollAuctionBook(clock);
   const ctx = marketCtx(nextHalt, dayKey, gapAdj, clock);
   const started = beginAuctionSession(crypto.quotes, auction, "open", ctx);

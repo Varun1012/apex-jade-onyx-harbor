@@ -1,6 +1,7 @@
 import { hkDate, hkParts } from "../format";
 import { hkDayKey } from "./engine";
 import {
+  BY_SYMBOL,
   UNIVERSE,
   fundamentalScore,
   type Instrument,
@@ -92,6 +93,124 @@ const BASE_FIN: Record<string, { revenue: number; profit: number; yoy: number }>
   "1888": { revenue: 230, profit: 42, yoy: 0.22 },
   "2513": { revenue: 18, profit: -6, yoy: 0.4 },
 };
+
+/** 以起始股價計的倍數。pe 為 null 代表虧損，改用市銷率。rich 是相對合理值的溢價，大於 1 先有回歸空間。 */
+const ANCHOR: Record<string, { pe: number | null; pb: number; ps: number; rich: number }> = {
+  "0700": { pe: 22, pb: 4.2, ps: 5.8, rich: 1.18 },
+  "0005": { pe: 9.5, pb: 1.05, ps: 3.9, rich: 1 },
+  "9988": { pe: 16, pb: 2.2, ps: 2.0, rich: 1.12 },
+  "3690": { pe: 32, pb: 4.8, ps: 1.5, rich: 1.32 },
+  "1810": { pe: 26, pb: 3.6, ps: 1.8, rich: 1.22 },
+  "0941": { pe: 11, pb: 1.15, ps: 1.9, rich: 1 },
+  "1299": { pe: 17, pb: 2.5, ps: 3.9, rich: 1.05 },
+  "0388": { pe: 34, pb: 8.5, ps: 21, rich: 1.28 },
+  "2318": { pe: 8, pb: 0.95, ps: 1.0, rich: 1 },
+  "1211": { pe: 20, pb: 4.2, ps: 1.2, rich: 1.15 },
+  "0434": { pe: 14, pb: 1.8, ps: 2.3, rich: 1.1 },
+  "0012": { pe: 11, pb: 0.42, ps: 2.1, rich: 1 },
+  "0857": { pe: 8, pb: 0.75, ps: 1.1, rich: 1 },
+  "0992": { pe: 13, pb: 2.8, ps: 0.3, rich: 1.05 },
+  "3988": { pe: 5.2, pb: 0.48, ps: 1.5, rich: 1 },
+  "9618": { pe: 16, pb: 2.1, ps: 0.9, rich: 1.12 },
+  "9999": { pe: 15, pb: 3.4, ps: 4.0, rich: 1.1 },
+  "0001": { pe: 8.5, pb: 0.48, ps: 1.7, rich: 1 },
+  "0002": { pe: 14, pb: 1.5, ps: 1.8, rich: 1 },
+  "0011": { pe: 11, pb: 1.25, ps: 2.5, rich: 1 },
+  "0175": { pe: 11, pb: 1.5, ps: 0.5, rich: 1.05 },
+  "2020": { pe: 20, pb: 4.6, ps: 2.6, rich: 1.18 },
+  "2382": { pe: 24, pb: 3.6, ps: 2.1, rich: 1.2 },
+  "1024": { pe: 30, pb: 3.4, ps: 1.4, rich: 1.36 },
+  "9961": { pe: 19, pb: 2.4, ps: 4.1, rich: 1.15 },
+  "9888": { pe: 11, pb: 1.05, ps: 1.5, rich: 1 },
+  "0027": { pe: 15, pb: 2.6, ps: 2.8, rich: 1.08 },
+  "0293": { pe: 8.5, pb: 1.15, ps: 0.75, rich: 1 },
+  "2269": { pe: 28, pb: 3.8, ps: 7.4, rich: 1.22 },
+  "2899": { pe: 13, pb: 2.8, ps: 1.4, rich: 1.05 },
+  "0020": { pe: null, pb: 4.8, ps: 14, rich: 1.55 },
+  "0981": { pe: 38, pb: 2.6, ps: 2.9, rich: 1.4 },
+  "1888": { pe: 15, pb: 2.4, ps: 2.7, rich: 1.08 },
+  "2513": { pe: null, pb: 16, ps: 72, rich: 1.7 },
+};
+
+function issuedShares(symbol: string): number {
+  const inst = BY_SYMBOL[symbol];
+  const base = BASE_FIN[symbol];
+  const a = ANCHOR[symbol];
+  if (!inst || !base || !a) return 0;
+  if (a.pe && base.profit > 0) return (a.pe * base.profit * 1e8) / inst.start;
+  return (a.ps * base.revenue * 1e8) / inst.start;
+}
+
+export function stockMultiples(
+  symbol: string,
+  price: number,
+  revenue: number,
+  profit: number,
+): { pe: number | null; pb: number | null; ps: number | null } {
+  const inst = BY_SYMBOL[symbol];
+  const a = ANCHOR[symbol];
+  const shares = issuedShares(symbol);
+  if (!inst || !a || !(shares > 0) || !(price > 0)) return { pe: null, pb: null, ps: null };
+  const mkt = price * shares;
+  const book = (inst.start * shares) / a.pb;
+  return {
+    pe: profit > 0 ? mkt / (profit * 1e8) : null,
+    pb: book > 0 ? mkt / book : null,
+    ps: revenue > 0 ? mkt / (revenue * 1e8) : null,
+  };
+}
+
+export function formatMultiple(n: number | null, digits = 1): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
+  return n.toFixed(digits);
+}
+
+/** 經濟過熱時，只有偏貴的股份有機會回歸；骰子不中就完全不動。 */
+export function maybeValueRevert(
+  clock: number,
+  lasts: Record<string, number>,
+  reports: Record<string, Report>,
+  hsiLast: number,
+  hsiPrev: number,
+  hsiStart: number,
+): { gaps: Record<string, number>; text: string | null } {
+  const fromStart = hsiStart > 0 ? hsiLast / hsiStart - 1 : 0;
+  const day = hsiPrev > 0 ? hsiLast / hsiPrev - 1 : 0;
+  let heat = 0.14;
+  if (fromStart > 0.04) heat += 0.1;
+  if (fromStart > 0.1) heat += 0.1;
+  if (day > 0.012) heat += 0.06;
+  if (Math.random() >= Math.min(0.4, heat)) return { gaps: {}, text: null };
+  if (Math.random() >= 0.4) return { gaps: {}, text: null };
+  const gaps: Record<string, number> = {};
+  let n = 0;
+  let sum = 0;
+  for (const inst of stockNames()) {
+    const a = ANCHOR[inst.symbol];
+    const px = lasts[inst.symbol];
+    if (!a || !(px > 0)) continue;
+    const rep = reports[inst.symbol];
+    const rev = rep?.revenue ?? BASE_FIN[inst.symbol]?.revenue ?? 1;
+    const profit = rep?.profit ?? BASE_FIN[inst.symbol]?.profit ?? 0;
+    const v = stockMultiples(inst.symbol, px, rev, profit);
+    const live = v.pe != null && a.pe ? v.pe : v.ps;
+    const fairBase = v.pe != null && a.pe ? a.pe : a.ps;
+    if (live == null || !(fairBase > 0)) continue;
+    const stretch = live / (fairBase / a.rich);
+    if (stretch < 1.08) continue;
+    const gap = -Math.min(0.028, (stretch - 1) * 0.09);
+    if (gap > -0.004) continue;
+    gaps[inst.symbol] = gap;
+    n += 1;
+    sum += gap;
+  }
+  if (!n) return { gaps: {}, text: null };
+  gaps.HSI = Math.max(-0.018, (sum / n) * 0.6);
+  return {
+    gaps,
+    text: "經濟過熱，部分高市盈率、高市淨率股份價值回歸，股價受壓。估值不高的股份未必跟隨，回歸並非必然。",
+  };
+}
 
 const ANNUAL_YIELD: Record<string, number> = {
   "0005": 0.055,

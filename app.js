@@ -62,6 +62,25 @@
     "0027": [438, 82, 0.11], "0293": [1040, 92, 0.08], "2269": [186, 49, 0.18], "2899": [3050, 322, 0.15],
     "0020": [38, -8, 0.12], "0981": [620, 48, 0.16], "1888": [230, 42, 0.22], "2513": [18, -6, 0.4]
   };
+  const ANCHOR = {
+    "0700": { pe: 22, pb: 4.2, ps: 5.8, rich: 1.18 }, "0005": { pe: 9.5, pb: 1.05, ps: 3.9, rich: 1 },
+    "9988": { pe: 16, pb: 2.2, ps: 2, rich: 1.12 }, "3690": { pe: 32, pb: 4.8, ps: 1.5, rich: 1.32 },
+    "1810": { pe: 26, pb: 3.6, ps: 1.8, rich: 1.22 }, "0941": { pe: 11, pb: 1.15, ps: 1.9, rich: 1 },
+    "1299": { pe: 17, pb: 2.5, ps: 3.9, rich: 1.05 }, "0388": { pe: 34, pb: 8.5, ps: 21, rich: 1.28 },
+    "2318": { pe: 8, pb: 0.95, ps: 1, rich: 1 }, "1211": { pe: 20, pb: 4.2, ps: 1.2, rich: 1.15 },
+    "0434": { pe: 14, pb: 1.8, ps: 2.3, rich: 1.1 }, "0012": { pe: 11, pb: 0.42, ps: 2.1, rich: 1 },
+    "0857": { pe: 8, pb: 0.75, ps: 1.1, rich: 1 }, "0992": { pe: 13, pb: 2.8, ps: 0.3, rich: 1.05 },
+    "3988": { pe: 5.2, pb: 0.48, ps: 1.5, rich: 1 }, "9618": { pe: 16, pb: 2.1, ps: 0.9, rich: 1.12 },
+    "9999": { pe: 15, pb: 3.4, ps: 4, rich: 1.1 }, "0001": { pe: 8.5, pb: 0.48, ps: 1.7, rich: 1 },
+    "0002": { pe: 14, pb: 1.5, ps: 1.8, rich: 1 }, "0011": { pe: 11, pb: 1.25, ps: 2.5, rich: 1 },
+    "0175": { pe: 11, pb: 1.5, ps: 0.5, rich: 1.05 }, "2020": { pe: 20, pb: 4.6, ps: 2.6, rich: 1.18 },
+    "2382": { pe: 24, pb: 3.6, ps: 2.1, rich: 1.2 }, "1024": { pe: 30, pb: 3.4, ps: 1.4, rich: 1.36 },
+    "9961": { pe: 19, pb: 2.4, ps: 4.1, rich: 1.15 }, "9888": { pe: 11, pb: 1.05, ps: 1.5, rich: 1 },
+    "0027": { pe: 15, pb: 2.6, ps: 2.8, rich: 1.08 }, "0293": { pe: 8.5, pb: 1.15, ps: 0.75, rich: 1 },
+    "2269": { pe: 28, pb: 3.8, ps: 7.4, rich: 1.22 }, "2899": { pe: 13, pb: 2.8, ps: 1.4, rich: 1.05 },
+    "0020": { pe: null, pb: 4.8, ps: 14, rich: 1.55 }, "0981": { pe: 38, pb: 2.6, ps: 2.9, rich: 1.4 },
+    "1888": { pe: 15, pb: 2.4, ps: 2.7, rich: 1.08 }, "2513": { pe: null, pb: 16, ps: 72, rich: 1.7 }
+  };
   const FIN_WIN = [[3, 12, "全年業績"], [5, 6, "第一季業績"], [8, 12, "中期業績"], [11, 6, "第三季業績"]];
   function hashSym(s) {
     let h = 2166136261;
@@ -78,6 +97,66 @@
     return t;
   }
   function isStock(i) { return !i.k || i.k === "stock"; }
+  function issuedShares(s) {
+    const inst = BY[s], base = FIN_BASE[s], a = ANCHOR[s];
+    if (!inst || !base || !a) return 0;
+    if (a.pe && base[1] > 0) return (a.pe * base[1] * 1e8) / inst.start;
+    return (a.ps * base[0] * 1e8) / inst.start;
+  }
+  function stockMultiples(s, price) {
+    const inst = BY[s], a = ANCHOR[s];
+    const shares = issuedShares(s);
+    const rep = state.reports && state.reports[s];
+    const base = FIN_BASE[s];
+    const rev = rep ? rep.rev : base ? base[0] : 0;
+    const profit = rep ? rep.profit : base ? base[1] : 0;
+    if (!inst || !a || !(shares > 0) || !(price > 0)) return { pe: null, pb: null, ps: null };
+    const mkt = price * shares;
+    const book = (inst.start * shares) / a.pb;
+    return {
+      pe: profit > 0 ? mkt / (profit * 1e8) : null,
+      pb: book > 0 ? mkt / book : null,
+      ps: rev > 0 ? mkt / (rev * 1e8) : null,
+    };
+  }
+  function fmtMx(n, d) {
+    if (n == null || !isFinite(n) || n <= 0) return "—";
+    return n.toFixed(d == null ? 1 : d);
+  }
+  function maybeValueRevert() {
+    const hsi = state.quotes.HSI, H = BY.HSI;
+    if (!hsi || !H) return { gaps: {}, text: null };
+    const fromStart = H.start > 0 ? hsi.last / H.start - 1 : 0;
+    const day = hsi.prev > 0 ? hsi.last / hsi.prev - 1 : 0;
+    let heat = 0.14;
+    if (fromStart > 0.04) heat += 0.1;
+    if (fromStart > 0.1) heat += 0.1;
+    if (day > 0.012) heat += 0.06;
+    if (Math.random() >= Math.min(0.4, heat)) return { gaps: {}, text: null };
+    if (Math.random() >= 0.4) return { gaps: {}, text: null };
+    const gaps = {};
+    let n = 0, sum = 0;
+    for (const i of UNIVERSE) {
+      if (!isStock(i)) continue;
+      const a = ANCHOR[i.s];
+      const q = state.quotes[i.s];
+      if (!a || !q) continue;
+      const v = stockMultiples(i.s, q.last);
+      const live = v.pe != null && a.pe ? v.pe : v.ps;
+      const fairBase = v.pe != null && a.pe ? a.pe : a.ps;
+      if (live == null || !(fairBase > 0)) continue;
+      const stretch = live / (fairBase / a.rich);
+      if (stretch < 1.08) continue;
+      const gap = -Math.min(0.028, (stretch - 1) * 0.09);
+      if (gap > -0.004) continue;
+      gaps[i.s] = gap;
+      n += 1;
+      sum += gap;
+    }
+    if (!n) return { gaps: {}, text: null };
+    gaps.HSI = Math.max(-0.018, (sum / n) * 0.6);
+    return { gaps, text: "經濟過熱，部分高市盈率、高市淨率股份價值回歸，股價受壓。估值不高的股份未必跟隨，回歸並非必然。" };
+  }
   function haltedNow(s) {
     const h = state.halt;
     if (!h || h.lifted || h.s !== s) return false;
@@ -1319,6 +1398,9 @@
     const ext = ensureExt();
     const extLine = externalHeadline(ext);
     if (extLine && state.news.indexOf("公司公告") < 0) state.news = extLine;
+    const revert = maybeValueRevert();
+    for (const s of Object.keys(revert.gaps)) gapAdj[s] = (gapAdj[s] || 0) + revert.gaps[s];
+    if (revert.text && state.news.indexOf("公司公告") < 0) state.news = revert.text;
     state.auction = rollAuction(state.clock);
     beginAuc("open");
     for (const s of Object.keys(gapAdj)) {
@@ -1794,6 +1876,15 @@
       selChg.textContent = fmtPct(chg);
       selChg.className = chg >= 0 ? "up" : "down";
     }
+    if (isStock(inst)) {
+      const v = stockMultiples(inst.s, q.last);
+      const peEl = document.getElementById("ratio-pe");
+      const pbEl = document.getElementById("ratio-pb");
+      const psEl = document.getElementById("ratio-ps");
+      if (peEl) peEl.textContent = v.pe == null ? "虧損" : fmtMx(v.pe, 1);
+      if (pbEl) pbEl.textContent = fmtMx(v.pb, v.pb != null && v.pb < 10 ? 2 : 1);
+      if (psEl) psEl.textContent = fmtMx(v.ps, v.ps != null && v.ps < 10 ? 2 : 1);
+    }
     const selPrev = document.getElementById("sel-prev");
     if (selPrev) selPrev.textContent = "收市 " + fmtP(q.prev);
     paintOhlc();
@@ -2016,7 +2107,10 @@
               if (d && d.dps > 0) return `<div class="div-box" data-div>派息 每股 ${fmtDps(d.dps)}${d.paid ? " · 已派發" : d.exed ? " · 已除淨" : ""}<br><span class="muted">除淨日 ${d.ex} · 派息日 ${d.pay}</span></div>`;
               if (rep && rep.profit > 0) return `<div class="muted">有純利，本期尚未／不派息</div>`;
               return `<div class="muted">無純利則不考慮派息</div>`;
-            })()}<div class="muted">下次公布 ${nxt.key} · ${esc(nxt.period)}</div></div>`;
+            })()}<div class="ratio" data-ratios>${(() => {
+              const v = stockMultiples(inst.s, q.last);
+              return `<div><div class="cap">市盈率</div><div class="mono" id="ratio-pe">${v.pe == null ? "虧損" : fmtMx(v.pe, 1)}</div></div><div><div class="cap">市淨率</div><div class="mono" id="ratio-pb">${fmtMx(v.pb, v.pb != null && v.pb < 10 ? 2 : 1)}</div></div><div><div class="cap">市銷率</div><div class="mono" id="ratio-ps">${fmtMx(v.ps, v.ps != null && v.ps < 10 ? 2 : 1)}</div></div>`;
+            })()}</div><div class="muted">倍數跟隨股價。經濟過熱時，估值偏高的股份有機會價值回歸，但不是每次都會發生。</div><div class="muted">下次公布 ${nxt.key} · ${esc(nxt.period)}</div></div>`;
           })() : ""}
           <div class="rr">
             <div class="rr-cell" id="rr-long-box"><div class="cap">偏多盈虧比</div><div class="px mono" id="rr-long">—</div><div class="muted" id="rr-long-t"></div></div>

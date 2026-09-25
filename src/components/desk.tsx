@@ -27,7 +27,7 @@ import {
   sessionPhase,
   usesHkAuction,
 } from "@/lib/market/engine";
-import { formatDayKey, formatDps, formatYi, haltResumeLabel, isHalted, nextResults } from "@/lib/market/corporate";
+import { formatDayKey, formatDps, formatMultiple, formatYi, haltResumeLabel, isHalted, nextResults, stockMultiples } from "@/lib/market/corporate";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -714,9 +714,13 @@ function FinReport({ symbol }: { symbol: string }) {
   const report = useDesk((s) => s.reports?.[symbol]);
   const halt = useDesk((s) => s.halt);
   const div = useDesk((s) => s.dividends?.[symbol]);
+  const last = useDesk((s) => s.quotes[symbol]?.last);
   if (!inst || inst.kind !== "stock") return null;
   const next = nextResults(symbol, clock);
   const halted = isHalted(halt, symbol, hkDayKey(clock), clock);
+  const rev = report?.revenue ?? 0;
+  const profit = report?.profit ?? 0;
+  const ratios = last ? stockMultiples(symbol, last, rev, profit) : null;
   return (
     <div className="mt-3 rounded-lg border border-border bg-card p-3" data-fin-report>
       <p className="text-[11px] tracking-wide text-muted-foreground">個股財報 · 每季公布一次</p>
@@ -747,6 +751,25 @@ function FinReport({ symbol }: { symbol: string }) {
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">尚無已公布業績。</p>
       )}
+      {ratios ? (
+        <div className="mt-2 grid grid-cols-3 gap-2 text-sm" data-ratios>
+          <div>
+            <p className="text-[11px] text-muted-foreground">市盈率</p>
+            <p className="font-mono tabular-nums">{ratios.pe == null ? "虧損" : formatMultiple(ratios.pe)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground">市淨率</p>
+            <p className="font-mono tabular-nums">{formatMultiple(ratios.pb, ratios.pb != null && ratios.pb < 10 ? 2 : 1)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground">市銷率</p>
+            <p className="font-mono tabular-nums">{formatMultiple(ratios.ps, ratios.ps != null && ratios.ps < 10 ? 2 : 1)}</p>
+          </div>
+        </div>
+      ) : null}
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        倍數跟隨股價。經濟過熱時，估值偏高的股份有機會價值回歸，但不是每次都會發生。
+      </p>
       {div && div.dps > 0 ? (
         <div className="mt-2 rounded-md bg-secondary/70 px-2.5 py-2 text-sm" data-div>
           <p>
