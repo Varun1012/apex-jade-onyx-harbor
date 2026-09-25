@@ -12,6 +12,10 @@ export type Halt = {
   reason: string;
   untilKey: string;
   boostKey: string;
+  /** null = 該日開市復牌；13:00 = 下午時段復牌 */
+  untilMins: number | null;
+  announce: string;
+  lifted: boolean;
 };
 
 export type Report = {
@@ -34,7 +38,8 @@ export type Dividend = {
   paid: boolean;
 };
 
-const HALT_DAY_CHANCE = 0.012;
+const HALT_DAY_CHANCE = 0.02;
+const AFTERNOON_MINS = 13 * 60;
 
 const HALT_REASONS = [
   "待公布內幕消息",
@@ -154,43 +159,95 @@ export function stockNames(): Instrument[] {
   return UNIVERSE.filter((i) => i.kind === "stock");
 }
 
-export function isHalted(halt: Halt | null | undefined, symbol: string, dayKey: string): boolean {
-  return Boolean(halt && halt.symbol === symbol && dayKey < halt.untilKey);
+function haltClockMins(clock: number): number {
+  const p = hkParts(clock);
+  return p.hour * 60 + p.minute;
 }
 
-export function volBoostFor(halt: Halt | null | undefined, symbol: string, dayKey: string): number {
+export function haltResumeLabel(halt: Halt): string {
+  const day = halt.untilKey.slice(5).replace("-", "/");
+  if (halt.untilMins == null) return `${day} 開市`;
+  const hh = String(Math.floor(halt.untilMins / 60)).padStart(2, "0");
+  const mm = String(halt.untilMins % 60).padStart(2, "0");
+  return `${day} ${hh}:${mm}`;
+}
+
+export function isHalted(
+  halt: Halt | null | undefined,
+  symbol: string,
+  dayKey: string,
+  clock?: number,
+): boolean {
+  if (!halt || halt.lifted || halt.symbol !== symbol) return false;
+  if (dayKey < halt.untilKey) return true;
+  if (dayKey > halt.untilKey) return false;
+  if (halt.untilMins == null) return false;
+  if (clock == null) return true;
+  return haltClockMins(clock) < halt.untilMins;
+}
+
+export function volBoostFor(
+  halt: Halt | null | undefined,
+  symbol: string,
+  dayKey: string,
+  clock?: number,
+): number {
   if (!halt || halt.symbol !== symbol) return 1;
-  if (dayKey === halt.untilKey || dayKey === halt.boostKey) return 2.1;
+  const resumed =
+    halt.lifted ||
+    dayKey > halt.untilKey ||
+    (dayKey === halt.untilKey &&
+      (halt.untilMins == null || (clock != null && haltClockMins(clock) >= halt.untilMins)));
+  if (!resumed) return 1;
+  if (dayKey === halt.untilKey || dayKey === halt.boostKey) return 2.6;
   return 1;
+}
+
+export function resumeGap(): number {
+  const sign = Math.random() < 0.5 ? 1 : -1;
+  return sign * (0.06 + Math.random() * 0.09);
 }
 
 export function rollHalt(clock: number, current: Halt | null): Halt | null {
   const day = hkDayKey(clock);
-  if (current) {
-    if (day < current.untilKey) return current;
-    return null;
-  }
+  if (current && !current.lifted && day < current.untilKey) return current;
+  if (current && !current.lifted && day === current.untilKey && current.untilMins != null) return current;
+  if (current?.lifted && day <= current.boostKey) return current;
+  if (current) return null;
   if (Math.random() >= HALT_DAY_CHANCE) return null;
   const pool = stockNames();
   const inst = pool[Math.floor(Math.random() * pool.length)]!;
-  const days = 1 + Math.floor(Math.random() * 3);
-  const until = addTradingDays(clock, days);
-  const boost = addTradingDays(until, 1);
+  const sameAfternoon = Math.random() < 0.42;
+  const until = sameAfternoon ? clock : addTradingDays(clock, 1 + Math.floor(Math.random() * 3));
+  const untilKey = hkDayKey(until);
+  const untilMins = sameAfternoon || Math.random() < 0.28 ? AFTERNOON_MINS : null;
+  const boostKey = hkDayKey(addTradingDays(until, 1));
+  const reason = HALT_REASONS[Math.floor(Math.random() * HALT_REASONS.length)]!;
+  const when =
+    untilMins == null
+      ? `${untilKey.slice(5).replace("-", "/")} 開市`
+      : untilKey === day
+        ? "今日下午 13:00"
+        : `${untilKey.slice(5).replace("-", "/")} 下午 13:00`;
+  const announce = `【公司公告】${inst.name}（${inst.symbol}）${reason}。股份暫停買賣，預計${when}復牌。`;
   return {
     symbol: inst.symbol,
     name: inst.name,
-    reason: HALT_REASONS[Math.floor(Math.random() * HALT_REASONS.length)]!,
-    untilKey: hkDayKey(until),
-    boostKey: hkDayKey(boost),
+    reason,
+    untilKey,
+    boostKey,
+    untilMins,
+    announce,
+    lifted: false,
   };
 }
 
 export function haltNews(halt: Halt, clock: number, kind: "start" | "resume") {
-  const until = halt.untilKey.slice(5).replace("-", "/");
+  const when = haltResumeLabel(halt);
   const text =
     kind === "start"
-      ? `${halt.name}（${halt.symbol}）停牌。${halt.reason}。預計 ${until} 復牌。`
-      : `${halt.name}（${halt.symbol}）復牌。停牌期間累積消息，短線波幅或明顯擴大。`;
+      ? halt.announce || `${halt.name}（${halt.symbol}）停牌。${halt.reason}。預計 ${when} 復牌。`
+      : `【公司公告】${halt.name}（${halt.symbol}）復牌。停牌期間消息一次過反映，股價波幅明顯擴大。`;
   return { id: `${clock}-halt${kind}`, text, at: clock };
 }
 
@@ -313,8 +370,8 @@ export function formatDayKey(key: string): string {
   return `${y}/${m}/${d}`;
 }
 
-export function haltSet(halt: Halt | null | undefined, dayKey: string): Set<string> {
-  if (halt && dayKey < halt.untilKey) return new Set([halt.symbol]);
+export function haltSet(halt: Halt | null | undefined, dayKey: string, clock?: number): Set<string> {
+  if (halt && isHalted(halt, halt.symbol, dayKey, clock)) return new Set([halt.symbol]);
   return new Set();
 }
 

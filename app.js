@@ -79,13 +79,40 @@
   }
   function isStock(i) { return !i.k || i.k === "stock"; }
   function haltedNow(s) {
-    return state.halt && state.halt.s === s && dayKey(state.clock) < state.halt.until;
+    const h = state.halt;
+    if (!h || h.lifted || h.s !== s) return false;
+    const d = dayKey(state.clock);
+    if (d < h.until) return true;
+    if (d > h.until) return false;
+    if (h.mins == null) return false;
+    const p = hkParts(state.clock);
+    return p.hour * 60 + p.minute < h.mins;
   }
   function volBoost(s) {
     const h = state.halt;
     if (!h || h.s !== s) return 1;
     const d = dayKey(state.clock);
-    return d === h.until || d === h.boost ? 2.1 : 1;
+    const p = hkParts(state.clock);
+    const mins = p.hour * 60 + p.minute;
+    const resumed = h.lifted || d > h.until || (d === h.until && (h.mins == null || mins >= h.mins));
+    if (!resumed) return 1;
+    return d === h.until || d === h.boost ? 2.6 : 1;
+  }
+  function resumeMove() {
+    return (Math.random() < 0.5 ? 1 : -1) * (0.06 + Math.random() * 0.09);
+  }
+  function applyShock(sym, gap) {
+    const i = BY[sym];
+    const q = state.quotes[sym];
+    if (!i || !q) return;
+    const last = rnd(Math.max(tickSize(q.last, i), q.last * (1 + gap)), i);
+    const t = tickSize(last, i);
+    q.last = last;
+    q.bid = rnd(Math.max(t, last - t), i);
+    q.ask = rnd(last + t, i);
+    q.h = Math.max(q.h, last);
+    q.l = Math.min(q.l, last);
+    q.iep = last;
   }
   function fmtYi(n) {
     if (n >= 100) return n.toFixed(0) + " 億";
@@ -380,7 +407,7 @@
     for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) { inst = pool[i]; break; } }
     const q = FUND[inst.s] ?? 0.5;
     const sign = Math.random() < 0.48 ? 1 : -1;
-    const mag = 0.105 + Math.random() * (0.1 + (1 - q) * 0.4);
+    const mag = 0.05 + Math.random() * 0.1;
     const slots = [];
     for (let min of [10*60+5, 10*60+40, 11*60+12, 11*60+48, 13*60+20, 14*60+8, 14*60+55, 15*60+22]) {
       const ts = Date.parse(`${day}T${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}:00+08:00`);
@@ -390,7 +417,7 @@
     const fireAt = slots[Math.floor(Math.random() * slots.length)];
     const why = (sign > 0 ? SURGE_WHY : CRASH_WHY)[Math.floor(Math.random() * 4)];
     const verb = sign > 0 ? "暴升" : "暴跌";
-    const text = `${inst.n}（${inst.s}）${verb}逾 ${Math.round(mag * 100)}%。${why}`;
+    const text = `${inst.n}（${inst.s}）${verb} ${Math.round(mag * 100)}%。${why}`;
     return { day, event: { s: inst.s, n: inst.n, sign, mag, fireAt, fired: false, text } };
   }
   const NEWS = [
@@ -1123,11 +1150,16 @@
     const dk = dayKey(state.clock);
     const gapAdj = {};
     if (!state.dividends) state.dividends = {};
-    if (state.halt && dk >= state.halt.until) {
-      state.news = state.halt.n + "（" + state.halt.s + "）復牌。停牌期間累積消息，短線波幅或明顯擴大。";
-      const sign = Math.random() < 0.5 ? 1 : -1;
-      gapAdj[state.halt.s] = sign * (0.028 + Math.random() * 0.055);
-      state.halt = null;
+    if (state.halt && state.halt.lifted) {
+      if (dk > state.halt.boost) state.halt = null;
+    } else if (state.halt && dk === state.halt.until && state.halt.mins == null) {
+      state.news = "【公司公告】" + state.halt.n + "（" + state.halt.s + "）復牌。停牌期間消息一次過反映，股價波幅明顯擴大。";
+      gapAdj[state.halt.s] = resumeMove();
+      state.halt.lifted = true;
+    } else if (state.halt && dk > state.halt.until) {
+      state.news = "【公司公告】" + state.halt.n + "（" + state.halt.s + "）復牌。停牌期間消息一次過反映，股價波幅明顯擴大。";
+      gapAdj[state.halt.s] = resumeMove();
+      state.halt.lifted = true;
     }
     for (const i of UNIVERSE) {
       if (!isStock(i)) continue;
@@ -1186,19 +1218,22 @@
         state.news = inst.n + "今日派息，每股 " + fmtDps(div.dps) + " 已按持股入帳。";
       }
     }
-    if (!state.halt && Math.random() < 0.012) {
+    if (!state.halt && Math.random() < 0.02) {
       const pool = UNIVERSE.filter(isStock);
       const inst = pool[Math.floor(Math.random() * pool.length)];
-      const days = 1 + Math.floor(Math.random() * 3);
-      const until = addTradingDays(state.clock, days);
-      const boost = addTradingDays(until, 1);
+      const afternoon = Math.random() < 0.42;
+      const untilAt = afternoon ? state.clock : addTradingDays(state.clock, 1 + Math.floor(Math.random() * 3));
+      const until = dayKey(untilAt);
+      const mins = afternoon || Math.random() < 0.28 ? 13 * 60 : null;
+      const when = mins == null ? until.slice(5).replace("-", "/") + " 開市" : until === dk ? "今日下午 13:00" : until.slice(5).replace("-", "/") + " 下午 13:00";
+      const reason = HALT_WHY[Math.floor(Math.random() * HALT_WHY.length)];
       state.halt = {
-        s: inst.s, n: inst.n,
-        reason: HALT_WHY[Math.floor(Math.random() * HALT_WHY.length)],
-        until: dayKey(until),
-        boost: dayKey(boost),
+        s: inst.s, n: inst.n, reason,
+        until, boost: dayKey(addTradingDays(untilAt, 1)),
+        mins, lifted: false,
+        announce: "【公司公告】" + inst.n + "（" + inst.s + "）" + reason + "。股份暫停買賣，預計" + when + "復牌。",
       };
-      state.news = inst.n + "（" + inst.s + "）停牌。" + state.halt.reason + "。預計 " + state.halt.until.slice(5).replace("-", "/") + " 復牌。";
+      state.news = state.halt.announce;
     }
     rollQuotesDay();
     const btcGap = applyBtcOvernight();
@@ -1263,6 +1298,12 @@
     if (!state.auction || state.auction.day !== dk) state.auction = rollAuction(state.clock);
     if (hp.hour === 9 && hp.minute === 0) {
       openDay();
+    } else if (state.halt && !state.halt.lifted && state.halt.mins != null && dk === state.halt.until && hp.hour * 60 + hp.minute >= state.halt.mins) {
+      applyShock(state.halt.s, resumeMove());
+      state.news = "【公司公告】" + state.halt.n + "（" + state.halt.s + "）復牌。停牌期間消息一次過反映，股價波幅明顯擴大。";
+      toast(state.news);
+      state.halt.lifted = true;
+      state.resumePrint = state.halt.s;
     } else if (hp.hour === 16 && hp.minute === 0 && !state.auction.pm) {
       beginAuc("close");
     }
@@ -1369,7 +1410,7 @@
       q.ask = rnd(last + t, i);
       q.h = Math.max(q.h, last);
       q.l = Math.min(q.l, last);
-      pushC(i.s, last, gapOpen);
+      pushC(i.s, last, gapOpen || state.resumePrint === i.s);
     }
     const names = UNIVERSE.filter((i) => i.s !== "HSI" && i.s !== "2800" && i.k !== "crypto");
     const avg = names.reduce((s, i) => s + state.quotes[i.s].last / i.start, 0) / names.length;
@@ -1386,6 +1427,7 @@
     eq.bid = rnd(etf - 0.01, BY["2800"]);
     eq.ask = rnd(etf + 0.01, BY["2800"]);
     pushC("2800", etf, gapOpen);
+    state.resumePrint = null;
         const eqy = equity();
     if (eqy >= GOAL) {
       state.won = true;
@@ -1870,7 +1912,7 @@
           ${isStock(inst) ? (() => {
             const rep = state.reports && state.reports[inst.s];
             const nxt = nextFin(inst.s, state.clock, false);
-            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.until.slice(5).replace("-", "/")} · ${esc(state.halt.reason)}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
+            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.mins == null ? state.halt.until.slice(5).replace("-", "/") + " 開市" : state.halt.until.slice(5).replace("-", "/") + " 13:00"} · ${esc(state.halt.reason)}</p><p class="muted">${esc(state.halt.announce || "")}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
               const d = state.dividends && state.dividends[inst.s];
               if (d && d.dps > 0) return `<div class="div-box" data-div>派息 每股 ${fmtDps(d.dps)}${d.paid ? " · 已派發" : d.exed ? " · 已除淨" : ""}<br><span class="muted">除淨日 ${d.ex} · 派息日 ${d.pay}</span></div>`;
               if (rep && rep.profit > 0) return `<div class="muted">有純利，本期尚未／不派息</div>`;

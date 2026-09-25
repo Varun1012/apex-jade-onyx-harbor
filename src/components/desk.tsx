@@ -27,7 +27,7 @@ import {
   sessionPhase,
   usesHkAuction,
 } from "@/lib/market/engine";
-import { formatDayKey, formatDps, formatYi, isHalted, nextResults } from "@/lib/market/corporate";
+import { formatDayKey, formatDps, formatYi, haltResumeLabel, isHalted, nextResults } from "@/lib/market/corporate";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -461,7 +461,7 @@ const WatchRow = memo(function WatchRow({
   const qt = useDesk((s) => s.quotes[symbol]);
   const selected = useDesk((s) => s.selected === symbol);
   const hist = useDesk((s) => s.histories[symbol]);
-  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock), s.clock));
   const select = useDesk((s) => s.select);
   if (!qt) return null;
   const chg = (qt.last - qt.prevClose) / qt.prevClose;
@@ -549,7 +549,7 @@ function TicketHead({ symbol }: { symbol: string }) {
   const prev = useDesk((s) => s.quotes[symbol]?.prevClose);
   const iep = useDesk((s) => s.quotes[symbol]?.iep);
   const clock = useDesk((s) => s.clock);
-  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock), s.clock));
   if (last == null || prev == null) return null;
   const chg = (last - prev) / prev;
   const auction = isAuction(clock) && usesHkAuction(inst);
@@ -713,13 +713,14 @@ function FinReport({ symbol }: { symbol: string }) {
   const div = useDesk((s) => s.dividends?.[symbol]);
   if (!inst || inst.kind !== "stock") return null;
   const next = nextResults(symbol, clock);
-  const halted = isHalted(halt, symbol, hkDayKey(clock));
+  const halted = isHalted(halt, symbol, hkDayKey(clock), clock);
   return (
     <div className="mt-3 rounded-lg border border-border bg-card p-3" data-fin-report>
       <p className="text-[11px] tracking-wide text-muted-foreground">個股財報 · 每季公布一次</p>
       {halted && halt ? (
         <p className="mt-1 text-sm text-up">
-          停牌至 {formatDayKey(halt.untilKey)} · {halt.reason}
+          停牌至 {haltResumeLabel(halt)} · {halt.reason}
+          {halt.announce ? <span className="mt-1 block text-muted-foreground">{halt.announce}</span> : null}
         </p>
       ) : null}
       {report ? (
@@ -845,7 +846,7 @@ function OrderTicket({ symbol }: { symbol: string }) {
   const iep = useDesk((s) => s.quotes[symbol]?.iep);
   const clock = useDesk((s) => s.clock);
   const pending = useDesk((s) => s.pending);
-  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock)));
+  const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock), s.clock));
   const qtyRef = useRef(defaultQty(symbol));
   const [qtyView, setQtyView] = useState(defaultQty(symbol));
   const [lev, setLev] = useState(1);

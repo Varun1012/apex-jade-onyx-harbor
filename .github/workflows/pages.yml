@@ -36,7 +36,8 @@ jobs:
           grep -q "market-ticker.mp3" app.js
           grep -q "rollExtreme" app.js
           grep -q "暴升" app.js
-          grep -q "0.105" app.js
+          grep -q "Math.random() \* 0.1" app.js
+          grep -q "公司公告" app.js
           grep -q "data-pos-pnl" app.js
           grep -q "paintPositions" app.js
           grep -q "mergeQuotes" app.js

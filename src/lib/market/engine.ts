@@ -276,9 +276,8 @@ export function rollExtremeEvent(clock: number): ExtremeSchedule {
     }
   }
 
-  const quality = fundamentalScore(inst.symbol);
   const sign: 1 | -1 = Math.random() < 0.48 ? 1 : -1;
-  const mag = 0.105 + Math.random() * (0.1 + (1 - quality) * 0.4);
+  const mag = 0.05 + Math.random() * 0.1;
   const slots = sessionSlots(clock).filter((s) => s > clock);
   if (slots.length < 8) {
     return { dayKey, event: null };
@@ -297,7 +296,7 @@ export function rollExtremeEvent(clock: number): ExtremeSchedule {
   const reason = reasons[Math.floor(Math.random() * reasons.length)]!;
   const pct = Math.round(mag * 100);
   const verb = sign > 0 ? "暴升" : "暴跌";
-  const text = `${inst.name}（${inst.symbol}）${verb}逾 ${pct}%。${reason}`;
+  const text = `${inst.name}（${inst.symbol}）${verb} ${pct}%。${reason}`;
 
   return {
     dayKey,
@@ -479,6 +478,31 @@ export function stepMarket(
   };
 
   return { quotes: next, news, histories: nextHist, extremeFired };
+}
+
+export function applyPriceShock(
+  quotes: Record<string, Quote>,
+  symbol: string,
+  gap: number,
+): Record<string, Quote> {
+  const inst = BY_SYMBOL[symbol];
+  const q = quotes[symbol];
+  if (!inst || !q) return quotes;
+  const raw = Math.max(tickSize(q.last, inst.kind), q.last * (1 + gap));
+  const sp = applySpread(inst, raw);
+  return {
+    ...quotes,
+    [symbol]: {
+      ...q,
+      last: sp.last,
+      bid: sp.bid,
+      ask: sp.ask,
+      high: Math.max(q.high, sp.last),
+      low: Math.min(q.low, sp.last),
+      open: q.open,
+      iep: sp.last,
+    },
+  };
 }
 
 export function rollDay(quotes: Record<string, Quote>): Record<string, Quote> {

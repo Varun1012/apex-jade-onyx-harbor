@@ -19,6 +19,7 @@ import {
   isHalted,
   publishReport,
   resultsDueToday,
+  resumeGap,
   rollHalt,
   seedDividends,
   seedReports,
@@ -43,6 +44,7 @@ import {
   advanceClock,
   auctionGapNews,
   applyCryptoOvernight,
+  applyPriceShock,
   beginAuctionSession,
   canEnterAuctionOrders,
   hkDayKey,
@@ -321,11 +323,11 @@ function fillPending(
   };
 }
 
-function marketCtx(halt: Halt | null, dayKey: string, gapAdj?: Record<string, number>) {
-  const halted = haltSet(halt, dayKey);
+function marketCtx(halt: Halt | null, dayKey: string, gapAdj?: Record<string, number>, clock?: number) {
+  const halted = haltSet(halt, dayKey, clock);
   const volBoost: Record<string, number> = {};
   if (halt) {
-    const b = volBoostFor(halt, halt.symbol, dayKey);
+    const b = volBoostFor(halt, halt.symbol, dayKey, clock);
     if (b !== 1) volBoost[halt.symbol] = b;
   }
   return { halted, volBoost, gapAdj };
@@ -343,15 +345,22 @@ function openTradingDay(
 ) {
   const dayKey = hkDayKey(clock);
   let nextHalt = halt;
-  if (halt && dayKey >= halt.untilKey) {
+  const gapAdj: Record<string, number> = {};
+  if (halt?.lifted) {
+    if (dayKey > halt.boostKey) nextHalt = null;
+  } else if (halt && dayKey === halt.untilKey && halt.untilMins == null) {
     extraNews.push(haltNews(halt, clock, "resume"));
-    nextHalt = null;
+    gapAdj[halt.symbol] = (gapAdj[halt.symbol] ?? 0) + resumeGap();
+    nextHalt = { ...halt, lifted: true };
+  } else if (halt && dayKey > halt.untilKey) {
+    extraNews.push(haltNews(halt, clock, "resume"));
+    gapAdj[halt.symbol] = (gapAdj[halt.symbol] ?? 0) + resumeGap();
+    nextHalt = { ...halt, lifted: true };
   }
   const due = resultsDueToday(clock);
   const nextReports = { ...reports };
   const nextFired = { ...earnFired };
   const nextDivs = { ...dividends };
-  const gapAdj: Record<string, number> = {};
   for (const { inst, period } of due) {
     const key = `${inst.symbol}:${dayKey}`;
     if (nextFired[key]) continue;
@@ -359,7 +368,7 @@ function openTradingDay(
     nextReports[inst.symbol] = rep;
     nextFired[key] = true;
     extraNews.push(earningsNews(inst, rep, clock));
-    gapAdj[inst.symbol] = earningsGap(rep);
+    gapAdj[inst.symbol] = (gapAdj[inst.symbol] ?? 0) + earningsGap(rep);
     const last = quotes[inst.symbol]?.last ?? inst.start;
     const main = period.includes("全年") || period.includes("中期");
     if (rep.profit > 0) {
@@ -398,10 +407,6 @@ function openTradingDay(
     }
     extraNews.push(dividendNews(inst, div, clock, "pay"));
   }
-  if (halt && dayKey === halt.untilKey) {
-    const sign = Math.random() < 0.5 ? 1 : -1;
-    gapAdj[halt.symbol] = (gapAdj[halt.symbol] ?? 0) + sign * (0.028 + Math.random() * 0.055);
-  }
   if (!nextHalt) {
     const rolled = rollHalt(clock, null);
     if (rolled && !due.some((d) => d.inst.symbol === rolled.symbol)) {
@@ -416,7 +421,7 @@ function openTradingDay(
   }
   if (crypto.news) extraNews.push(crypto.news);
   const auction = rollAuctionBook(clock);
-  const ctx = marketCtx(nextHalt, dayKey, gapAdj);
+  const ctx = marketCtx(nextHalt, dayKey, gapAdj, clock);
   const started = beginAuctionSession(crypto.quotes, auction, "open", ctx);
   return {
     quotes: started.quotes,
@@ -528,6 +533,16 @@ export const useDesk = create<DeskState>()(
         let news = st.news;
         let toast = st.toast;
         let halt = st.halt;
+        if (halt && halt.announce == null) {
+          halt = {
+            ...halt,
+            untilMins: halt.untilMins ?? null,
+            lifted: Boolean(halt.lifted),
+            announce:
+              halt.announce ||
+              `【公司公告】${halt.name}（${halt.symbol}）${halt.reason}。預計${halt.untilKey.slice(5).replace("-", "/")}復牌。`,
+          };
+        }
         let reports = { ...seedReports(clock), ...(st.reports ?? {}) };
         let earnFired = st.earnFired ?? {};
         let dividends = {
@@ -539,12 +554,13 @@ export const useDesk = create<DeskState>()(
           ...(st.dividends ?? {}),
         };
         const extraNews: NewsItem[] = [];
+        let resumePrint = false;
 
         if (auction.dayKey !== dayKey) {
           auction = rollAuctionBook(clock);
         }
 
-        let ctx = marketCtx(halt, dayKey);
+        let ctx = marketCtx(halt, dayKey, undefined, clock);
 
         if (p.hour === 9 && p.minute === 0) {
           const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
@@ -557,6 +573,21 @@ export const useDesk = create<DeskState>()(
           ctx = opened.ctx;
           if (opened.payout) cash += opened.payout;
           if (opened.payToast) toast = opened.payToast;
+        } else if (
+          halt &&
+          !halt.lifted &&
+          halt.untilMins != null &&
+          dayKey === halt.untilKey &&
+          p.hour * 60 + p.minute >= halt.untilMins
+        ) {
+          const gap = resumeGap();
+          quotes = applyPriceShock(quotes, halt.symbol, gap);
+          const note = haltNews(halt, clock, "resume");
+          extraNews.push(note);
+          toast = note.text;
+          halt = { ...halt, lifted: true };
+          resumePrint = true;
+          ctx = marketCtx(halt, dayKey, undefined, clock);
         } else if (p.hour === 16 && p.minute === 0 && !auction.closeDone) {
           const started = beginAuctionSession(quotes, auction, "close", ctx);
           quotes = started.quotes;
@@ -614,7 +645,7 @@ export const useDesk = create<DeskState>()(
           const stepped = stepMarket(quotes, st.histories, clock, extreme, ctx);
           quotes = stepped.quotes;
           const gapOpen = p.hour === 9 && p.minute === 30;
-          candles = applyTickCandles(candles, quotes, clock, gapOpen, ctx.halted);
+          candles = applyTickCandles(candles, quotes, clock, gapOpen || resumePrint, ctx.halted);
           if (stepped.extremeFired && extreme.event) {
             extreme = { ...extreme, event: { ...extreme.event, fired: true } };
           }
@@ -679,7 +710,7 @@ export const useDesk = create<DeskState>()(
         if (!Number.isFinite(qty) || qty <= 0) return "請輸入有效股數";
         const inst = BY_SYMBOL[st.selected];
         if (!inst) return "找不到股票";
-        if (isHalted(st.halt, st.selected, hkDayKey(st.clock))) {
+        if (isHalted(st.halt, st.selected, hkDayKey(st.clock), st.clock)) {
           return `${inst.name} 停牌，暫停買賣`;
         }
         const q = st.quotes[st.selected]!;
@@ -774,7 +805,7 @@ export const useDesk = create<DeskState>()(
         const p = st.positions.find((x) => x.symbol === symbol);
         if (!p) return;
         const inst = BY_SYMBOL[symbol];
-        if (inst && isHalted(st.halt, symbol, hkDayKey(st.clock))) {
+        if (inst && isHalted(st.halt, symbol, hkDayKey(st.clock), st.clock)) {
           set({ toast: `${inst.name} 停牌，暫停平倉` });
           return;
         }
