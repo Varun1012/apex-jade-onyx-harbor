@@ -1762,7 +1762,7 @@
     data.forEach((c, i) => {
       const x = pad + slot * i + slot / 2;
       const up = c.c >= c.o;
-      const col = up ? "#c4453c" : "#2f8f6b";
+      const col = up ? "#2f8f6b" : "#c4453c";
       ctx.strokeStyle = col;
       ctx.fillStyle = col;
       ctx.beginPath();
@@ -1787,7 +1787,7 @@
       const x = pad + slot * i + slot / 2;
       const vh = Math.max(1, ((c.v || 0) / maxV) * (volH - 4));
       ctx.globalAlpha = i === data.length - 1 ? 0.95 : 0.72;
-      ctx.fillStyle = c.c >= c.o ? "#c4453c" : "#2f8f6b";
+      ctx.fillStyle = c.c >= c.o ? "#2f8f6b" : "#c4453c";
       ctx.fillRect(x - bodyW / 2, volTop + volH - vh, bodyW, vh);
     });
     ctx.globalAlpha = 1;
@@ -1846,10 +1846,11 @@
     if (newsBar) {
       const surge = state.news.includes("暴升");
       const crash = state.news.includes("暴跌");
-      newsBar.className = "news " + (surge ? "surge" : crash ? "crash" : "");
+      const haltNews = !surge && !crash && /停牌|暫停買賣|復牌/.test(state.news);
+      newsBar.className = "news " + (surge ? "surge" : crash ? "crash" : haltNews ? "halt" : "");
       const k = document.getElementById("news-k");
       const span = document.getElementById("news-t");
-      if (k) k.textContent = surge ? "暴升" : crash ? "暴跌" : "NEWS";
+      if (k) k.textContent = surge ? "暴升" : crash ? "暴跌" : haltNews ? "停牌" : "NEWS";
       if (span) span.textContent = state.news;
     }
     document.querySelectorAll("#list [data-s]").forEach((row) => {
@@ -1863,8 +1864,9 @@
         px.innerHTML = fmtP(qq.last, inst) + "<br><small>" + fmtPct(c) + "</small>";
       }
       const name = row.querySelector(".name");
-      if (name) name.textContent = inst.n;
+      if (name) name.innerHTML = inst.n + (haltedNow(s) ? " <small class=halt>停牌</small>" : "");
       row.classList.remove("gap-up", "gap-down");
+      row.classList.toggle("halted", haltedNow(s));
       row.classList.toggle("active", state.sel === s);
     });
     const inst = BY[state.sel], q = state.quotes[state.sel];
@@ -2061,7 +2063,7 @@
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
         </div>
       </header>
-      <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
+      <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : /停牌|暫停買賣|復牌/.test(state.news) ? "halt" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : /停牌|暫停買賣|復牌/.test(state.news) ? "停牌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
         <p class="rule">交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。離開再開，當根開／高／低／收同整段陰陽燭原封保留。</p>
       <main class="desk">
         <section class="col">
@@ -2070,7 +2072,7 @@
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
             const hide = n && !i.s.includes(n) && !i.n.includes(n);
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${haltedNow(i.s) ? " <small class=up>停牌</small>" : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${haltedNow(i.s) ? "停牌" : fmtPct(c)}</small></span></button>`;
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${haltedNow(i.s) ? "halted" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${haltedNow(i.s) ? " <small class=halt>停牌</small>" : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${haltedNow(i.s) ? "停牌" : fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
@@ -2102,7 +2104,7 @@
           ${isStock(inst) ? (() => {
             const rep = state.reports && state.reports[inst.s];
             const nxt = nextFin(inst.s, state.clock, false);
-            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="up">停牌至 ${state.halt.mins == null ? state.halt.until.slice(5).replace("-", "/") + " 開市" : state.halt.until.slice(5).replace("-", "/") + " 13:00"} · ${esc(state.halt.reason)}</p><p class="muted">${esc(state.halt.announce || "")}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
+            return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="halt">停牌至 ${state.halt.mins == null ? state.halt.until.slice(5).replace("-", "/") + " 開市" : state.halt.until.slice(5).replace("-", "/") + " 13:00"} · ${esc(state.halt.reason)}</p><p class="muted">${esc(state.halt.announce || "")}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
               const d = state.dividends && state.dividends[inst.s];
               if (d && d.dps > 0) return `<div class="div-box" data-div>派息 每股 ${fmtDps(d.dps)}${d.paid ? " · 已派發" : d.exed ? " · 已除淨" : ""}<br><span class="muted">除淨日 ${d.ex} · 派息日 ${d.pay}</span></div>`;
               if (rep && rep.profit > 0) return `<div class="muted">有純利，本期尚未／不派息</div>`;

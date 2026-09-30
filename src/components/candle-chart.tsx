@@ -88,8 +88,8 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       const bodyW = Math.max(2, Math.min(9, slot * 0.62));
 
       const styles = getComputedStyle(document.documentElement);
-      const up = styles.getPropertyValue("--color-up").trim() || "#c4453c";
-      const down = styles.getPropertyValue("--color-down").trim() || "#2f8f6b";
+      const up = styles.getPropertyValue("--color-up").trim() || "#2f8f6b";
+      const down = styles.getPropertyValue("--color-down").trim() || "#c4453c";
       const muted = styles.getPropertyValue("--color-muted").trim() || "#8b9188";
       const border = styles.getPropertyValue("--color-border").trim() || "#2a2d29";
       const fg = styles.getPropertyValue("--color-fg").trim() || "#ecece8";

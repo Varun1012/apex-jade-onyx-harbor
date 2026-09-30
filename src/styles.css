@@ -21,12 +21,15 @@
   --color-secondary: #1e211e;
   --color-secondary-foreground: #ecece8;
   --color-ring: #c5cbc4;
-  --color-up: #c4453c;
-  --color-up-foreground: #fff7f6;
-  --color-up-soft: #c4453c22;
-  --color-down: #2f8f6b;
-  --color-down-foreground: #f3fff9;
-  --color-down-soft: #2f8f6b22;
+  --color-up: #2f8f6b;
+  --color-up-foreground: #f3fff9;
+  --color-up-soft: #2f8f6b22;
+  --color-down: #c4453c;
+  --color-down-foreground: #fff7f6;
+  --color-down-soft: #c4453c22;
+  --color-halt: #c4b5fd;
+  --color-halt-soft: #7c6bb833;
+  --color-halt-foreground: #f5f3ff;
   --color-accent: #c5cbc4;
   --color-accent-foreground: #121412;
 

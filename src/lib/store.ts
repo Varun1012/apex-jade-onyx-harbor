@@ -340,6 +340,12 @@ function fillPending(
   };
 }
 
+function preferHaltNews(extra: NewsItem[], prev: NewsItem[]): NewsItem[] {
+  const isHalt = (n: NewsItem) => !n.extreme && /停牌|暫停買賣|復牌/.test(n.text);
+  const merged = [...extra, ...prev];
+  return [...merged.filter(isHalt), ...merged.filter((n) => !isHalt(n))].slice(0, 24);
+}
+
 function marketCtx(halt: Halt | null, dayKey: string, gapAdj?: Record<string, number>, clock?: number) {
   const halted = haltSet(halt, dayKey, clock);
   const volBoost: Record<string, number> = {};
@@ -714,7 +720,7 @@ export const useDesk = create<DeskState>()(
             cash,
             positions,
             fills,
-            news: extraNews.length ? [...extraNews, ...news].slice(0, 24) : news,
+            news: extraNews.length ? preferHaltNews(extraNews, news) : news,
             extreme,
             auction,
             pending,
@@ -745,7 +751,7 @@ export const useDesk = create<DeskState>()(
           cash,
           positions,
           fills,
-          news: extraNews.length ? [...extraNews, ...news].slice(0, 24) : news,
+          news: extraNews.length ? preferHaltNews(extraNews, news) : news,
           auction,
           pending,
           halt,

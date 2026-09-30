@@ -242,14 +242,24 @@ function NewsStrip() {
           ? news.sign === 1
             ? "border-up/40 bg-up-soft"
             : "border-down/40 bg-down-soft"
-          : "border-border bg-surface",
+          : /停牌|暫停買賣|復牌/.test(news.text)
+            ? "border-halt/50 bg-halt-soft"
+            : "border-border bg-surface",
       )}
     >
-      <Badge variant="outline">{news.extreme ? (news.sign === 1 ? "暴升" : "暴跌") : "行情"}</Badge>
+      <Badge variant="outline">
+        {news.extreme ? (news.sign === 1 ? "暴升" : "暴跌") : /停牌|暫停買賣|復牌/.test(news.text) ? "停牌" : "行情"}
+      </Badge>
       <p
         className={cn(
           "min-w-0 truncate",
-          news.extreme ? (news.sign === 1 ? "text-up" : "text-down") : "text-muted-foreground",
+          news.extreme
+            ? news.sign === 1
+              ? "text-up"
+              : "text-down"
+            : /停牌|暫停買賣|復牌/.test(news.text)
+              ? "text-halt"
+              : "text-muted-foreground",
         )}
       >
         {news.text}
@@ -476,13 +486,14 @@ const WatchRow = memo(function WatchRow({
         onClick={() => select(symbol)}
         className={cn(
           "grid w-full grid-cols-[72px_1fr_auto] items-center gap-2 px-4 py-2.5 text-left sm:grid-cols-[72px_1fr_104px_72px] sm:px-5",
-          selected ? "bg-secondary" : "hover:bg-secondary/60",
+          selected && !halted ? "bg-secondary" : "hover:bg-secondary/60",
+          halted && "bg-halt-soft",
         )}
       >
         <span className="font-mono text-sm tabular-nums">{symbol}</span>
         <span className="min-w-0">
           <span className="block truncate text-sm">{name}</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className={cn("text-[11px]", halted ? "text-halt" : "text-muted-foreground")}>
             {halted ? "停牌" : sector}
           </span>
         </span>
@@ -725,7 +736,7 @@ function FinReport({ symbol }: { symbol: string }) {
     <div className="mt-3 rounded-lg border border-border bg-card p-3" data-fin-report>
       <p className="text-[11px] tracking-wide text-muted-foreground">個股財報 · 每季公布一次</p>
       {halted && halt ? (
-        <p className="mt-1 text-sm text-up">
+        <p className="mt-1 text-sm text-halt">
           停牌至 {haltResumeLabel(halt)} · {halt.reason}
           {halt.announce ? <span className="mt-1 block text-muted-foreground">{halt.announce}</span> : null}
         </p>
