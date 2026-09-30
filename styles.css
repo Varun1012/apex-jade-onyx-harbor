@@ -191,6 +191,17 @@ button:disabled { opacity: 0.4; pointer-events: none; }
 .bid .px, .ask .px { font-size: 20px; margin-top: 2px; }
 .cap { font-size: 11px; opacity: 0.85; }
 canvas.kline { width: 100%; height: 312px; display: block; margin: 8px 0; }
+.ind { display: flex; gap: 6px; margin-top: 8px; }
+.ind button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.ind button.on.boll { background: #e6c36a22; color: #e6c36a; border-color: #e6c36a66; }
+.ind button.on.rsi { background: #c4b5fd22; color: #c4b5fd; border-color: #c4b5fd66; }
 .rr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
 .rr-cell { border-radius: 10px; padding: 10px 12px; background: var(--secondary); }
 .rr-cell .px { font-size: 20px; margin-top: 2px; }

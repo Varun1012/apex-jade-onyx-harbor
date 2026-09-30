@@ -59,6 +59,8 @@ jobs:
           grep -q "市淨率" app.js
           grep -q "市銷率" app.js
           grep -q "價值回歸" app.js
+          grep -q "布林帶" app.js
+          grep -q "RSI(14)" app.js
           grep -q "dayEq" app.js
           grep -q "data-ohlc" app.js
           node --check app.js

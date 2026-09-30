@@ -763,7 +763,7 @@
       candles: null,
       pos: [],
       fills: [],
-      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。紅升綠跌。",
+      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。綠升紅跌。",
       sel: "0700",
       speed: 1,
       tf: "15m",
@@ -786,6 +786,7 @@
       dayKey: "",
       extGap: null,
       extDay: "",
+      ind: { boll: false, rsi: false },
     };
   }
 
@@ -928,6 +929,10 @@
           dividends: s.dividends || null,
           dayEq: typeof s.dayEq === "number" && s.dayEq > 0 ? s.dayEq : 0,
           dayKey: typeof s.dayKey === "string" ? s.dayKey : "",
+          ind: {
+            boll: !!(s.ind && s.ind.boll),
+            rsi: !!(s.ind && s.ind.rsi),
+          },
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -989,6 +994,7 @@
       news: state.news,
       dayEq: state.dayEq,
       dayKey: state.dayKey,
+      ind: state.ind,
     };
   }
   let persistTimer = null;
@@ -1705,9 +1711,43 @@
     if (a >= 1e4) return (a / 1e4).toFixed(1) + "萬";
     return Math.round(a).toLocaleString("en-HK");
   }
+  function bollinger(values, n = 20, k = 2) {
+    return values.map((_, i) => {
+      if (i + 1 < n) return null;
+      const slice = values.slice(i + 1 - n, i + 1);
+      const mid = slice.reduce((a, b) => a + b, 0) / n;
+      let v = 0;
+      for (const x of slice) v += (x - mid) * (x - mid);
+      const sd = Math.sqrt(v / n);
+      return { mid, up: mid + k * sd, lo: mid - k * sd };
+    });
+  }
+  function rsiSeries(closes, n = 14) {
+    const out = closes.map(() => null);
+    if (closes.length < n + 1) return out;
+    let gain = 0, loss = 0;
+    for (let i = 1; i <= n; i++) {
+      const d = closes[i] - closes[i - 1];
+      if (d >= 0) gain += d;
+      else loss -= d;
+    }
+    let avgG = gain / n, avgL = loss / n;
+    const at = (g, l) => (l === 0 ? 100 : 100 - 100 / (1 + g / l));
+    out[n] = at(avgG, avgL);
+    for (let i = n + 1; i < closes.length; i++) {
+      const d = closes[i] - closes[i - 1];
+      avgG = (avgG * (n - 1) + (d > 0 ? d : 0)) / n;
+      avgL = (avgL * (n - 1) + (d < 0 ? -d : 0)) / n;
+      out[i] = at(avgG, avgL);
+    }
+    return out;
+  }
   function drawChart(el, cs) {
+    const showBoll = !!(state.ind && state.ind.boll);
+    const showRsi = !!(state.ind && state.ind.rsi);
     const dpr = devicePixelRatio || 1;
-    const w = el.clientWidth, h = 312;
+    const w = el.clientWidth, h = showRsi ? 390 : 312;
+    el.style.height = h + "px";
     const needW = Math.max(1, Math.floor(w * dpr));
     const needH = Math.floor(h * dpr);
     if (el.width !== needW || el.height !== needH) {
@@ -1724,7 +1764,16 @@
     const data = raw.map((c, i, arr) =>
       !freeze && i === arr.length - 1 ? { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) } : c
     );
+    const cl = data.map((c) => c.c);
+    const bands = showBoll ? bollinger(cl) : null;
     let min = Math.min(...data.map((c) => c.l)), max = Math.max(...data.map((c) => c.h));
+    if (bands) {
+      for (const b of bands) {
+        if (!b) continue;
+        min = Math.min(min, b.lo);
+        max = Math.max(max, b.up);
+      }
+    }
     if (min === max) {
       min *= 0.99;
       max *= 1.01;
@@ -1748,7 +1797,6 @@
       ctx.stroke();
       ctx.fillText(fmtP(v), pad - 6, y(v) + 3);
     }
-    const cl = data.map((c) => c.c);
     ctx.strokeStyle = "#c5cbc488";
     ctx.beginPath();
     data.forEach((_, i) => {
@@ -1772,8 +1820,44 @@
       const top = y(Math.max(c.o, c.c)), bot = y(Math.min(c.o, c.c));
       ctx.fillRect(x - bodyW / 2, top, bodyW, Math.max(1, bot - top));
     });
+    if (bands) {
+      const strokeBand = (pick) => {
+        ctx.beginPath();
+        let started = false;
+        bands.forEach((b, i) => {
+          if (!b) return;
+          const x = pad + slot * i + slot / 2;
+          if (!started) { ctx.moveTo(x, y(b[pick])); started = true; }
+          else ctx.lineTo(x, y(b[pick]));
+        });
+        ctx.stroke();
+      };
+      ctx.strokeStyle = "#e6c36a";
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.85;
+      strokeBand("up");
+      strokeBand("lo");
+      ctx.beginPath();
+      let upStarted = false;
+      bands.forEach((b, i) => {
+        if (!b) return;
+        const x = pad + slot * i + slot / 2;
+        if (!upStarted) { ctx.moveTo(x, y(b.up)); upStarted = true; }
+        else ctx.lineTo(x, y(b.up));
+      });
+      for (let i = bands.length - 1; i >= 0; i--) {
+        if (!bands[i]) continue;
+        ctx.lineTo(pad + slot * i + slot / 2, y(bands[i].lo));
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#e6c36a";
+      ctx.globalAlpha = 0.08;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     const volTop = 10 + priceH + gap;
     ctx.strokeStyle = "#2a2d29";
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(pad, volTop);
     ctx.lineTo(w - 8, volTop);
@@ -1802,6 +1886,44 @@
       else ctx.moveTo(x, yy);
     });
     ctx.stroke();
+    if (showRsi) {
+      const rsi = rsiSeries(cl);
+      const rsiH = 64;
+      const rsiTop = volTop + volH + 10;
+      const yR = (v) => rsiTop + ((100 - v) / 100) * rsiH;
+      ctx.strokeStyle = "#2a2d29";
+      ctx.beginPath();
+      ctx.moveTo(pad, rsiTop);
+      ctx.lineTo(w - 8, rsiTop);
+      ctx.stroke();
+      ctx.setLineDash([3, 3]);
+      ctx.globalAlpha = 0.55;
+      for (const level of [30, 70]) {
+        ctx.beginPath();
+        ctx.moveTo(pad, yR(level));
+        ctx.lineTo(w - 8, yR(level));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.strokeStyle = "#c4b5fd";
+      ctx.lineWidth = 1.3;
+      let started = false;
+      rsi.forEach((v, i) => {
+        if (v == null) return;
+        const x = pad + slot * i + slot / 2;
+        if (!started) { ctx.moveTo(x, yR(v)); started = true; }
+        else ctx.lineTo(x, yR(v));
+      });
+      ctx.stroke();
+      let lastR = null;
+      for (let i = rsi.length - 1; i >= 0; i--) if (rsi[i] != null) { lastR = rsi[i]; break; }
+      ctx.fillStyle = "#c4b5fd";
+      ctx.textAlign = "right";
+      ctx.fillText("RSI", pad - 6, rsiTop + 12);
+      if (lastR != null) ctx.fillText(lastR.toFixed(0), pad - 6, yR(lastR) + 3);
+    }
   }
 
   function hardReset() {
@@ -1998,7 +2120,7 @@
       const pad = (n) => String(n).padStart(2, "0");
       return pad(p.month) + "/" + pad(p.day) + (state.tf === "1d" ? "" : " " + pad(p.hour) + ":" + pad(p.minute));
     };
-    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20 · 紅升綠跌";
+    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20" + (state.ind && state.ind.boll ? " · 布林帶(20,2)" : "") + (state.ind && state.ind.rsi ? " · RSI(14)" : "") + " · 綠升紅跌";
   }
   let chartRaf = 0;
   function scheduleChart() {
@@ -2087,6 +2209,7 @@
             return `<span>開 <b class="mono" id="ohlc-o">${fmtP(o)}</b></span><span>高 <b class="mono" id="ohlc-h">${fmtP(h)}</b></span><span>低 <b class="mono" id="ohlc-l">${fmtP(l)}</b></span><span>收 <b class="mono" id="ohlc-c">${fmtP(c)}</b></span>`;
           })()}</div>
           <div class="bar">${[["5m", "5分鐘"], ["15m", "15分鐘"], ["1d", "日線"]].map(([id, l]) => `<button type="button" class="${state.tf === id ? "on" : ""}" data-tf="${id}">${l}</button>`).join("")}</div>
+          <div class="ind"><button type="button" class="boll ${state.ind && state.ind.boll ? "on" : ""}" data-ind="boll">BOLL 布林帶</button><button type="button" class="rsi ${state.ind && state.ind.rsi ? "on" : ""}" data-ind="rsi">RSI(14)</button></div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
           <div class="bidask" id="bidask">${auc ? `<div class="iep"><div class="cap">競價對盤價 IEP（掛盤待對盤，即時不成交）</div><div class="px mono" id="sel-iep">${fmtP(iep)}</div><div class="muted">${esc(sessionLabel(state.clock))}</div></div>` : `<div class="bid"><div class="cap">買入價 Bid（賣出成交）</div><div class="px mono" id="sel-bid">${fmtP(q.bid)}</div></div>
@@ -2136,7 +2259,7 @@
       </main>
       <footer class="site">
         <span>apex-jade-onyx-harbor · 教學模擬，並非真實報價或投資建議</span>
-        <span>紅升綠跌 · Ask 買 / Bid 賣</span>
+        <span>綠升紅跌 · Ask 買 / Bid 賣</span>
       </footer>
       ${state.won || state.busted ? `<div class="modal"><div class="box"><p class="kicker">${state.won ? "MISSION COMPLETE" : "MARGIN CALL"}</p><h2>${state.won ? "財富自由" : "戶口爆倉"}</h2><p class="muted">${state.won ? "總資產已達港幣一億。你可以重開戶口再挑戰一局。" : "保證金已耗盡。市場不會等你，再來一局。"}</p><p class="mono" style="font-size:22px;margin:12px 0">${fmtH(eq)}</p><button type="button" class="ghost" id="again">再來一局</button></div></div>` : ""}
       ${state.toast ? `<div class="toast" role="status">${esc(state.toast)}</div>` : ""}
@@ -2173,6 +2296,15 @@
     $.querySelectorAll("[data-tf]").forEach((b) => {
       b.onclick = () => {
         state.tf = b.dataset.tf;
+        persist();
+        render();
+      };
+    });
+    $.querySelectorAll("[data-ind]").forEach((b) => {
+      b.onclick = () => {
+        const key = b.dataset.ind;
+        if (!state.ind) state.ind = { boll: false, rsi: false };
+        state.ind[key] = !state.ind[key];
         persist();
         render();
       };

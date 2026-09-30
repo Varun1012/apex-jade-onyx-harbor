@@ -13,6 +13,41 @@ function sma(values: number[], n: number): (number | null)[] {
   });
 }
 
+function bollinger(values: number[], n = 20, k = 2): ({ mid: number; up: number; lo: number } | null)[] {
+  return values.map((_, i) => {
+    if (i + 1 < n) return null;
+    const slice = values.slice(i + 1 - n, i + 1);
+    const mid = slice.reduce((a, b) => a + b, 0) / n;
+    let v = 0;
+    for (const x of slice) v += (x - mid) * (x - mid);
+    const sd = Math.sqrt(v / n);
+    return { mid, up: mid + k * sd, lo: mid - k * sd };
+  });
+}
+
+function rsiSeries(closes: number[], n = 14): (number | null)[] {
+  const out: (number | null)[] = closes.map(() => null);
+  if (closes.length < n + 1) return out;
+  let gain = 0;
+  let loss = 0;
+  for (let i = 1; i <= n; i++) {
+    const d = closes[i]! - closes[i - 1]!;
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  let avgG = gain / n;
+  let avgL = loss / n;
+  const at = (g: number, l: number) => (l === 0 ? 100 : 100 - 100 / (1 + g / l));
+  out[n] = at(avgG, avgL);
+  for (let i = n + 1; i < closes.length; i++) {
+    const d = closes[i]! - closes[i - 1]!;
+    avgG = (avgG * (n - 1) + (d > 0 ? d : 0)) / n;
+    avgL = (avgL * (n - 1) + (d < 0 ? -d : 0)) / n;
+    out[i] = at(avgG, avgL);
+  }
+  return out;
+}
+
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -32,6 +67,8 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
   const barT = useDesk((s) => s.candles[symbol]?.[tf]?.at(-1)?.t ?? 0);
   const len = useDesk((s) => s.candles[symbol]?.[tf]?.length ?? 0);
   const lastVol = useDesk((s) => s.candles[symbol]?.[tf]?.at(-1)?.v ?? 0);
+  const showBoll = useDesk((s) => s.indicators?.boll ?? false);
+  const showRsi = useDesk((s) => s.indicators?.rsi ?? false);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -43,7 +80,7 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
       const w = parent.clientWidth;
-      const h = 292;
+      const h = showRsi ? 370 : 292;
       const needW = Math.max(1, Math.floor(w * dpr));
       const needH = Math.floor(h * dpr);
       if (canvas.width !== needW || canvas.height !== needH) {
@@ -71,10 +108,19 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
         return { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) };
       });
       if (!data.length) return;
+      const closes = data.map((c) => c.c);
+      const bands = showBoll ? bollinger(closes) : null;
       const highs = data.map((c) => c.h);
       const lows = data.map((c) => c.l);
       let min = Math.min(...lows);
       let max = Math.max(...highs);
+      if (bands) {
+        for (const b of bands) {
+          if (!b) continue;
+          min = Math.min(min, b.lo);
+          max = Math.max(max, b.up);
+        }
+      }
       if (min === max) {
         min *= 0.99;
         max *= 1.01;
@@ -145,6 +191,48 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       ctx.stroke();
       ctx.globalAlpha = 1;
 
+      if (bands) {
+        const strokeBand = (pick: "up" | "lo") => {
+          ctx.beginPath();
+          let startedBand = false;
+          bands.forEach((b, i) => {
+            if (!b) return;
+            const x = padL + slot * i + slot / 2;
+            const yy = y(b[pick]);
+            if (!startedBand) {
+              ctx.moveTo(x, yy);
+              startedBand = true;
+            } else ctx.lineTo(x, yy);
+          });
+          ctx.stroke();
+        };
+        ctx.strokeStyle = "#e6c36a";
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.85;
+        strokeBand("up");
+        strokeBand("lo");
+        ctx.beginPath();
+        let upStarted = false;
+        bands.forEach((b, i) => {
+          if (!b) return;
+          const x = padL + slot * i + slot / 2;
+          if (!upStarted) {
+            ctx.moveTo(x, y(b.up));
+            upStarted = true;
+          } else ctx.lineTo(x, y(b.up));
+        });
+        for (let i = bands.length - 1; i >= 0; i--) {
+          const b = bands[i];
+          if (!b) continue;
+          ctx.lineTo(padL + slot * i + slot / 2, y(b.lo));
+        }
+        ctx.closePath();
+        ctx.fillStyle = "#e6c36a";
+        ctx.globalAlpha = 0.08;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
       const volTop = padT + priceH + gap;
       ctx.strokeStyle = border;
       ctx.beginPath();
@@ -186,6 +274,47 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       });
       ctx.stroke();
       ctx.globalAlpha = 1;
+
+      if (showRsi) {
+        const rsi = rsiSeries(closes);
+        const rsiH = 64;
+        const rsiTop = volTop + volH + 10;
+        const yR = (v: number) => rsiTop + ((100 - v) / 100) * rsiH;
+        ctx.strokeStyle = border;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padL, rsiTop);
+        ctx.lineTo(w - padR, rsiTop);
+        ctx.stroke();
+        ctx.setLineDash([3, 3]);
+        ctx.globalAlpha = 0.55;
+        for (const level of [30, 70]) {
+          ctx.beginPath();
+          ctx.moveTo(padL, yR(level));
+          ctx.lineTo(w - padR, yR(level));
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.strokeStyle = "#c4b5fd";
+        ctx.lineWidth = 1.3;
+        let rStart = false;
+        rsi.forEach((v, i) => {
+          if (v == null) return;
+          const x = padL + slot * i + slot / 2;
+          if (!rStart) {
+            ctx.moveTo(x, yR(v));
+            rStart = true;
+          } else ctx.lineTo(x, yR(v));
+        });
+        ctx.stroke();
+        const lastR = [...rsi].reverse().find((v) => v != null);
+        ctx.fillStyle = "#c4b5fd";
+        ctx.textAlign = "right";
+        ctx.fillText("RSI", padL - 6, rsiTop + 12);
+        if (lastR != null) ctx.fillText(lastR.toFixed(0), padL - 6, yR(lastR) + 3);
+      }
     };
 
     const schedule = () => {
@@ -203,7 +332,7 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [symbol, tf, live, barT, len, lastVol, clock]);
+  }, [symbol, tf, live, barT, len, lastVol, clock, showBoll, showRsi]);
 
   const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
   const first = series[Math.max(0, series.length - 72)];
@@ -215,7 +344,10 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
     <div className="w-full">
       <canvas ref={ref} className="block w-full" aria-label="陰陽燭及成交量" />
       <p className="mt-1 text-[11px] text-muted-foreground">
-        {TF_LABEL[tf]} · {range} · 下方成交量 · 淡線 SMA20 · 紅升綠跌
+        {TF_LABEL[tf]} · {range} · 下方成交量 · 淡線 SMA20
+        {showBoll ? " · 布林帶(20,2)" : ""}
+        {showRsi ? " · RSI(14)" : ""}
+        {" · 綠升紅跌"}
       </p>
     </div>
   );

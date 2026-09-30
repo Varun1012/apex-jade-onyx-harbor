@@ -515,6 +515,8 @@ function Ticket() {
   const selected = useDesk((s) => s.selected);
   const inst = BY_SYMBOL[selected];
   const [tf, setTf] = useState<Tf>("15m");
+  const indicators = useDesk((s) => s.indicators ?? { boll: false, rsi: false });
+  const toggleIndicator = useDesk((s) => s.toggleIndicator);
 
   if (!inst) return null;
 
@@ -542,13 +544,35 @@ function Ticket() {
           </button>
         ))}
       </div>
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={() => toggleIndicator("boll")}
+          className={cn(
+            "h-8 rounded-md border px-3 text-xs",
+            indicators.boll ? "border-[#e6c36a66] bg-[#e6c36a22] text-[#e6c36a]" : "border-border text-muted-foreground",
+          )}
+        >
+          BOLL
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleIndicator("rsi")}
+          className={cn(
+            "h-8 rounded-md border px-3 text-xs",
+            indicators.rsi ? "border-[#c4b5fd66] bg-[#c4b5fd22] text-[#c4b5fd]" : "border-border text-muted-foreground",
+          )}
+        >
+          RSI
+        </button>
+      </div>
       <CandleOhlc symbol={selected} tf={tf} />
       <div className="mt-2">
         <CandleChart symbol={selected} tf={tf} />
       </div>
       <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        港股慣例：紅升綠跌。持續交易時買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交，開／收市價相對前收可出現缺口。
+        港股慣例：綠升紅跌。持續交易時買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交，開／收市價相對前收可出現缺口。自選 BOLL 為布林帶(20,2)，RSI 為 14 期，30／70 為超賣超買。
       </p>
       <OrderTicket symbol={selected} />
       <FinReport symbol={selected} />

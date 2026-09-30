@@ -98,6 +98,8 @@ export type AuctionOrder = {
 
 export type Speed = 0 | 1 | 4 | 12;
 
+export type Indicators = { boll: boolean; rsi: boolean };
+
 type DeskState = {
   cash: number;
   clock: number;
@@ -122,9 +124,11 @@ type DeskState = {
   dividends: Record<string, Dividend>;
   dayEquity: number;
   dayEquityKey: string;
+  indicators: Indicators;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
+  toggleIndicator: (key: keyof Indicators) => void;
   setMusicOn: (on: boolean) => void;
   tick: () => void;
   place: (side: Side, qty: number, leverage: number) => string | null;
@@ -209,6 +213,7 @@ function initial() {
     ),
     dayEquity: STARTING_CASH,
     dayEquityKey: hkDayKey(clock),
+    indicators: { boll: false, rsi: false },
   };
 }
 
@@ -557,6 +562,11 @@ export const useDesk = create<DeskState>()(
       },
       select: (symbol) => set({ selected: symbol }),
       setSpeed: (s) => set({ speed: s }),
+      toggleIndicator: (key) =>
+        set((s) => {
+          const cur = s.indicators ?? { boll: false, rsi: false };
+          return { indicators: { ...cur, [key]: !cur[key] } };
+        }),
       setMusicOn: (on) => set({ musicOn: on }),
       clearToast: () => set({ toast: null }),
       tick: () => {
@@ -948,6 +958,7 @@ export const useDesk = create<DeskState>()(
         dividends: s.dividends,
         dayEquity: s.dayEquity,
         dayEquityKey: s.dayEquityKey,
+        indicators: s.indicators,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({
