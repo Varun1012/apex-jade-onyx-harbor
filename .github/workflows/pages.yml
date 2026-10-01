@@ -62,8 +62,6 @@ jobs:
           grep -q "布林帶" app.js
           grep -q "RSI(14)" app.js
           grep -q "開市競價期間同步通知" app.js
-          grep -q "data-card" app.js
-          grep -q "出牌" app.js
           grep -q "dayEq" app.js
           grep -q "data-ohlc" app.js
           grep -q "日經指數" app.js
@@ -73,5 +71,9 @@ jobs:
           grep -q "NVDA" app.js
           grep -q "7203" app.js
           grep -q "data-board" app.js
+          if grep -E -q "data-card|dealHand|出牌" app.js; then
+            echo "card feature should stay removed"
+            exit 1
+          fi
           node --check app.js
           echo "checks passed"

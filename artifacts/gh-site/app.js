@@ -946,7 +946,6 @@
       extGap: null,
       extDay: "",
       ind: { boll: false, rsi: false },
-      hand: null,
       board: "HK",
       fx: null,
     };
@@ -1096,7 +1095,6 @@
             boll: !!(s.ind && s.ind.boll),
             rsi: !!(s.ind && s.ind.rsi),
           },
-          hand: s.hand && Array.isArray(s.hand.cards) ? s.hand : null,
           board: s.board === "JP" || s.board === "US" ? s.board : "HK",
           fx: s.fx && typeof s.fx === "object" ? s.fx : null,
         });
@@ -1168,7 +1166,6 @@
       dayEq: state.dayEq,
       dayKey: state.dayKey,
       ind: state.ind,
-      hand: state.hand,
       board: state.board || "HK",
       fx: state.fx || null,
     };
@@ -1481,105 +1478,6 @@
     const base = state.halt.announce || ("【公司公告】" + state.halt.n + "（" + state.halt.s + "）" + state.halt.reason + "。股份暫停買賣。");
     return base + " " + tag + "：暫停輸入買賣盤及對盤。";
   }
-  const CARD_POOL = [
-    { kind: "north", title: "北水", blurb: "南向資金湧入，帶動恒指及高貝塔。", scope: "market", sign: 1, lo: 0.007, hi: 0.012 },
-    { kind: "drag", title: "外圍急挫", blurb: "外圍期指轉弱，拖累大市。", scope: "market", sign: -1, lo: 0.008, hi: 0.013 },
-    { kind: "beat", title: "業績勝預期", blurb: "作用於目前個股，競價目標上調。", scope: "stock", sign: 1, lo: 0.035, hi: 0.06 },
-    { kind: "rumor", title: "利淡傳聞", blurb: "作用於目前個股，競價目標下調。", scope: "stock", sign: -1, lo: 0.035, hi: 0.06 },
-    { kind: "tech", title: "科網熱炒", blurb: "科技股集體偏強，恒指輕微受惠。", scope: "sector", sector: "科技", sign: 1, lo: 0.012, hi: 0.02 },
-    { kind: "banks", title: "資金避險", blurb: "資金湧入金融股，大市略穩。", scope: "sector", sector: "金融", sign: 1, lo: 0.007, hi: 0.011 },
-    { kind: "commodity", title: "商品轉強", blurb: "能源與礦業受惠，相關股份上調。", scope: "sector", sector: "能源|礦業", sign: 1, lo: 0.015, hi: 0.028 },
-    { kind: "cover", title: "空頭回補", blurb: "作用於目前個股，短線買盤回補。", scope: "stock", sign: 1, lo: 0.028, hi: 0.045 },
-  ];
-  function dealHand(dk) {
-    const pool = CARD_POOL.slice();
-    const cards = [];
-    while (cards.length < 3 && pool.length) {
-      const proto = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
-      cards.push({
-        id: dk + "-" + proto.kind,
-        kind: proto.kind,
-        title: proto.title,
-        blurb: proto.blurb,
-        scope: proto.scope,
-        sector: proto.sector || "",
-        sign: proto.sign,
-        mag: proto.lo + Math.random() * (proto.hi - proto.lo),
-      });
-    }
-    return { day: dk, cards };
-  }
-  function cardMoves(card, focus) {
-    if (card.scope === "stock") return [{ s: focus, gap: card.sign * card.mag }, { s: "HSI", gap: card.sign * card.mag * 0.08 }];
-    if (card.scope === "sector") {
-      const map = {
-        "科技": ["0700", "9988", "3690", "1810", "0020", "0981", "1888", "2513", "0992", "9618", "9999", "2382", "1024", "9888"],
-        "金融": ["0005", "1299", "0388", "2318", "3988", "0011"],
-        "能源": ["0857"],
-        "礦業": ["2899"],
-      };
-      const out = [];
-      for (const name of card.sector.split("|")) {
-        for (const s of map[name] || []) out.push({ s, gap: card.sign * card.mag });
-      }
-      out.push({ s: "HSI", gap: card.sign * Math.min(0.006, card.mag * 0.28) });
-      return out;
-    }
-    const ext = card.sign * card.mag;
-    const out = [{ s: "HSI", gap: ext }];
-    for (const i of UNIVERSE) {
-      if (!isHkStock(i)) continue;
-      out.push({ s: i.s, gap: ext * (0.72 + 0.28 * Math.min(1.6, Math.max(0.3, i.beta))) });
-    }
-    return out;
-  }
-  function nudgeCard(symbol, gap, matched) {
-    const inst = BY[symbol], q = state.quotes[symbol];
-    if (!inst || !q || haltedNow(symbol)) return;
-    if (matched) {
-      applyShock(symbol, gap);
-      return;
-    }
-    const base = state.auction.tgt[symbol] > 0 ? state.auction.tgt[symbol] : (q.iep > 0 ? q.iep : q.last);
-    const px = rnd(Math.max(tickSize(base, inst), base * (1 + gap)), inst);
-    state.auction.tgt[symbol] = px;
-    const cur = q.iep > 0 ? q.iep : q.last;
-    const iep = rnd(cur + (px - cur) * 0.45, inst);
-    q.iep = iep;
-    q.bid = iep;
-    q.ask = iep;
-  }
-  function playCard(id) {
-    const ph = sessionPhase(state.clock);
-    if (ph !== "open-input" && ph !== "open-cool") return toast("卡牌只可在開市競價（09:00–09:30）打出。");
-    const dk = dayKey(state.clock);
-    const card = state.hand && state.hand.cards.find((c) => c.id === id);
-    if (!state.hand || state.hand.day !== dk || !card) return toast("這張卡已經用過。");
-    const inst = BY[state.sel];
-    if (card.scope === "stock") {
-      if (!inst || !isStock(inst)) return toast("請先選一隻個股，再打出這張卡。");
-      if (haltedNow(state.sel)) return toast(inst.n + " 停牌，卡牌不能影響該股。");
-    }
-    const matched = !!(state.auction && state.auction.am);
-    for (const leg of cardMoves(card, state.sel)) nudgeCard(leg.s, leg.gap, matched);
-    if (state.auction && state.auction.tgt.HSI && state.quotes["2800"]) {
-      const etf = rnd(state.auction.tgt.HSI / 1000, BY["2800"]);
-      state.auction.tgt["2800"] = etf;
-      if (!matched) {
-        state.quotes["2800"].iep = etf;
-        state.quotes["2800"].bid = etf;
-        state.quotes["2800"].ask = etf;
-      }
-    }
-    const pct = (card.sign > 0 ? "+" : "−") + (card.mag * 100).toFixed(1) + "%";
-    const who = card.scope === "stock" ? inst.n : card.scope === "sector" ? card.sector.replace("|", "、") : "恒指";
-    const line = "出牌「" + card.title + "」。" + who + "於開市競價受影響，波幅約 " + pct + "。";
-    state.hand.cards = state.hand.cards.filter((c) => c.id !== id);
-    if (!(state.halt && !state.halt.lifted)) state.news = line;
-    toast(line);
-    persist();
-    render();
-  }
   function rollQuotesDay() {
     for (const i of UNIVERSE) {
       if (!isHk(i)) continue;
@@ -1702,7 +1600,6 @@
       const basePx = state.auction.tgt[s] > 0 ? state.auction.tgt[s] : q.prev;
       state.auction.tgt[s] = rnd(basePx * (1 + gapAdj[s]), inst);
     }
-    state.hand = dealHand(dk);
     const haltLine = haltAuctionLine("open");
     if (haltLine) state.news = haltLine;
   }
@@ -1964,7 +1861,6 @@
     }
     if (!isSession(state.clock)) {
       const ph = sessionPhase(state.clock);
-      if ((ph === "open-input" || ph === "open-cool") && (!state.hand || state.hand.day !== dk)) state.hand = dealHand(dk);
       if ((ph === "open-input" || ph === "open-cool" || ph === "close-input" || ph === "close-random") && state.halt && !state.halt.lifted && !/停牌|暫停買賣|復牌/.test(state.news || "")) {
         state.news = haltAuctionLine(ph.indexOf("close") === 0 ? "close" : "open");
       }
@@ -2701,7 +2597,6 @@
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : /停牌|暫停買賣|復牌/.test(state.news) ? "halt" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : /停牌|暫停買賣|復牌/.test(state.news) ? "停牌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-      ${(board === "HK" && (sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool") && state.hand && state.hand.day === dayKey(state.clock) && state.hand.cards.length) ? `<div class="cards"><p class="hint">開市競價 · 手牌 3 張 · 點擊打出，個股卡作用於目前選擇</p>${state.hand.cards.map((c) => `<button type="button" class="card" data-card="${c.id}"><b>${esc(c.title)}</b><span>${esc(c.blurb)}</span></button>`).join("")}</div>` : ""}
         <p class="rule">${rules}</p>
       <main class="desk">
         <section class="col">
@@ -2839,9 +2734,6 @@
         render();
       };
     });
-    $.querySelectorAll("[data-card]").forEach((b) => {
-      b.onclick = () => playCard(b.dataset.card);
-    });
     $.querySelectorAll("[data-lev]").forEach((b) => {
       b.onclick = () => {
         state.lev = +b.dataset.lev;
@@ -2891,11 +2783,6 @@
     }
   }
 
-  {
-    const ph0 = sessionPhase(state.clock);
-    const dk0 = dayKey(state.clock);
-    if ((ph0 === "open-input" || ph0 === "open-cool") && (!state.hand || state.hand.day !== dk0)) state.hand = dealHand(dk0);
-  }
   render();
   armTicker();
 })();

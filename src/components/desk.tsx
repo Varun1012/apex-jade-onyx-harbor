@@ -105,7 +105,6 @@ export function Desk() {
     <div className="min-h-dvh bg-background text-foreground">
       <HeaderBar />
       <NewsStrip />
-      <CardHand />
       <main className="grid gap-px bg-border lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)_minmax(260px,0.85fr)]">
         <section className="order-2 bg-background lg:order-1">
           <WatchlistMemo />
@@ -285,34 +284,6 @@ function GoalBar() {
         />
       </div>
     </>
-  );
-}
-
-function CardHand() {
-  const hand = useDesk((s) => s.hand);
-  const clock = useDesk((s) => s.clock);
-  const board = useDesk((s) => s.board ?? "HK");
-  const playCard = useDesk((s) => s.playCard);
-  const phase = sessionPhase(clock);
-  const openAuction = phase === "open-input" || phase === "open-cool";
-  if (board !== "HK" || !openAuction || !hand?.cards.length || hand.dayKey !== hkDayKey(clock)) return null;
-  return (
-    <div className="border-b border-border bg-surface px-4 py-2 sm:px-6">
-      <p className="mb-1.5 text-[11px] text-muted-foreground">開市競價 · 手牌 3 張 · 點擊打出，個股卡作用於目前選擇</p>
-      <div className="grid gap-2 sm:grid-cols-3">
-        {hand.cards.map((card) => (
-          <button
-            key={card.id}
-            type="button"
-            onClick={() => playCard(card.id)}
-            className="rounded-md border border-[#e6c36a55] bg-[#e6c36a14] px-3 py-2 text-left"
-          >
-            <span className="block text-sm text-[#e6c36a]">{card.title}</span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">{card.blurb}</span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
