@@ -370,6 +370,17 @@ export function haltNews(halt: Halt, clock: number, kind: "start" | "resume") {
   return { id: `${clock}-halt${kind}`, text, at: clock };
 }
 
+export function auctionHaltNews(halt: Halt, clock: number, session: "open" | "close") {
+  const tag = session === "open" ? "開市競價期間同步通知" : "收市競價期間同步通知";
+  const base = halt.announce || `【公司公告】${halt.name}（${halt.symbol}）${halt.reason}。股份暫停買賣。`;
+  return {
+    id: `${clock}-halt-${session}`,
+    text: `${base} ${tag}：暫停輸入買賣盤及對盤。`,
+    at: clock,
+    symbol: halt.symbol,
+  };
+}
+
 function windowDay(year: number, month: number, day: number, symbol: string): { y: number; m: number; d: number } {
   const offset = hashSym(symbol) % 10;
   let t = hkDate(year, month, day, 9, 0) + offset * 86_400_000;

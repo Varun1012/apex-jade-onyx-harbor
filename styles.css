@@ -202,6 +202,18 @@ canvas.kline { width: 100%; height: 312px; display: block; margin: 8px 0; }
 }
 .ind button.on.boll { background: #e6c36a22; color: #e6c36a; border-color: #e6c36a66; }
 .ind button.on.rsi { background: #c4b5fd22; color: #c4b5fd; border-color: #c4b5fd66; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 20px 10px; border-bottom: 1px solid var(--border); background: #141614; }
+.cards .hint { grid-column: 1 / -1; margin: 0; font-size: 11px; color: var(--muted); }
+.card {
+  text-align: left;
+  border: 1px solid #e6c36a55;
+  background: #e6c36a14;
+  color: var(--fg);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.card b { display: block; font-size: 13px; color: #e6c36a; font-weight: 500; }
+.card span { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
 .rr { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
 .rr-cell { border-radius: 10px; padding: 10px 12px; background: var(--secondary); }
 .rr-cell .px { font-size: 20px; margin-top: 2px; }

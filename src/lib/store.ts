@@ -6,6 +6,8 @@ import {
   UNIVERSE,
   BY_SYMBOL,
   BOYAA_SYMBOL,
+  roundTick,
+  tickSize,
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
@@ -15,6 +17,7 @@ import {
   earningsNews,
   exDivGap,
   haltNews,
+  auctionHaltNews,
   haltSet,
   isHalted,
   maybeValueRevert,
@@ -69,6 +72,7 @@ import {
   type NewsItem,
   type Quote,
 } from "./market/engine";
+import { cardMoves, cardNews, dealHand, type HandState } from "./market/cards";
 
 export type Side = "buy" | "sell";
 
@@ -125,10 +129,12 @@ type DeskState = {
   dayEquity: number;
   dayEquityKey: string;
   indicators: Indicators;
+  hand: HandState | null;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
   toggleIndicator: (key: keyof Indicators) => void;
+  playCard: (id: string) => void;
   setMusicOn: (on: boolean) => void;
   tick: () => void;
   place: (side: Side, qty: number, leverage: number) => string | null;
@@ -214,6 +220,7 @@ function initial() {
     dayEquity: STARTING_CASH,
     dayEquityKey: hkDayKey(clock),
     indicators: { boll: false, rsi: false },
+    hand: dealHand(hkDayKey(clock)),
   };
 }
 
@@ -468,6 +475,9 @@ function openTradingDay(
       extraNews.unshift({ id: `val-${dayKey}`, text: revert.text, at: clock, symbol: "HSI", sign: -1 });
     }
   }
+  if (nextHalt && !nextHalt.lifted) {
+    extraNews.unshift(auctionHaltNews(nextHalt, clock, "open"));
+  }
   const auction = rollAuctionBook(clock);
   const ctx = marketCtx(nextHalt, dayKey, gapAdj, clock);
   const started = beginAuctionSession(crypto.quotes, auction, "open", ctx);
@@ -481,6 +491,7 @@ function openTradingDay(
     payout,
     payToast: payNotes.length ? `派息入帳 ${payNotes.join("、")}` : null,
     ctx,
+    hand: dealHand(dayKey),
   };
 }
 
@@ -568,6 +579,74 @@ export const useDesk = create<DeskState>()(
           return { indicators: { ...cur, [key]: !cur[key] } };
         }),
       setMusicOn: (on) => set({ musicOn: on }),
+      playCard: (id) => {
+        const st = get();
+        const phase = sessionPhase(st.clock);
+        if (phase !== "open-input" && phase !== "open-cool") {
+          set({ toast: "卡牌只可在開市競價（09:00–09:30）打出。" });
+          return;
+        }
+        const dayKey = hkDayKey(st.clock);
+        const hand = st.hand;
+        const card = hand?.cards.find((c) => c.id === id);
+        if (!hand || hand.dayKey !== dayKey || !card) {
+          set({ toast: "這張卡已經用過。" });
+          return;
+        }
+        if (card.scope === "stock") {
+          const inst = BY_SYMBOL[st.selected];
+          if (!inst || inst.kind !== "stock") {
+            set({ toast: "請先選一隻個股，再打出這張卡。" });
+            return;
+          }
+          if (isHalted(st.halt, st.selected, dayKey, st.clock)) {
+            set({ toast: `${inst.name} 停牌，卡牌不能影響該股。` });
+            return;
+          }
+        }
+        let quotes = st.quotes;
+        let auction = st.auction;
+        const matched = Boolean(auction.morningDone);
+        for (const leg of cardMoves(card, st.selected)) {
+          if (isHalted(st.halt, leg.symbol, dayKey, st.clock)) continue;
+          const inst = BY_SYMBOL[leg.symbol];
+          const q = quotes[leg.symbol];
+          if (!inst || !q) continue;
+          if (matched) {
+            quotes = applyPriceShock(quotes, leg.symbol, leg.gap);
+          } else {
+            const base = auction.target[leg.symbol] > 0 ? auction.target[leg.symbol] : q.iep > 0 ? q.iep : q.last;
+            const raw = Math.max(tickSize(base, inst.kind), base * (1 + leg.gap));
+            const px = inst.kind === "index" ? Math.round(raw) : roundTick(raw, inst.kind);
+            const cur = q.iep > 0 ? q.iep : q.last;
+            const iepRaw = cur + (px - cur) * 0.45;
+            const iep = inst.kind === "index" ? Math.round(iepRaw) : roundTick(iepRaw, inst.kind);
+            auction = { ...auction, target: { ...auction.target, [leg.symbol]: px } };
+            quotes = { ...quotes, [leg.symbol]: { ...q, iep, bid: iep, ask: iep } };
+          }
+        }
+        const hsiPx = quotes.HSI?.last;
+        const hsiT = auction.target.HSI;
+        if (hsiT && quotes["2800"]) {
+          const etfPx = roundTick(hsiT / 1000, "etf");
+          auction = { ...auction, target: { ...auction.target, "2800": etfPx } };
+          if (!matched) {
+            const eq = quotes["2800"];
+            quotes = { ...quotes, "2800": { ...eq, iep: etfPx, bid: etfPx, ask: etfPx } };
+          } else if (hsiPx) {
+            quotes = applyPriceShock(quotes, "2800", hsiPx / 1000 / quotes["2800"].last - 1);
+          }
+        }
+        const note = cardNews(card, st.selected, st.clock);
+        const nextCards = hand.cards.filter((c) => c.id !== id);
+        set({
+          quotes,
+          auction,
+          hand: { dayKey, cards: nextCards },
+          news: preferHaltNews([note], st.news),
+          toast: note.text,
+        });
+      },
       clearToast: () => set({ toast: null }),
       tick: () => {
         const st = get();
@@ -610,6 +689,7 @@ export const useDesk = create<DeskState>()(
         let resumePrint = false;
         let dayEquity = st.dayEquity;
         let dayEquityKey = st.dayEquityKey ?? "";
+        let hand = st.hand ?? null;
         if (!(dayEquity > 0) || !dayEquityKey) {
           dayEquity = equityOf(cash, positions, quotes);
           dayEquityKey = dayKey;
@@ -624,6 +704,11 @@ export const useDesk = create<DeskState>()(
           auction = rollAuctionBook(clock);
         }
 
+        const phaseNow = sessionPhase(clock);
+        if ((phaseNow === "open-input" || phaseNow === "open-cool") && hand?.dayKey !== dayKey) {
+          hand = dealHand(dayKey);
+        }
+
         let ctx = marketCtx(halt, dayKey, undefined, clock);
 
         if (p.hour === 9 && p.minute === 0) {
@@ -636,6 +721,7 @@ export const useDesk = create<DeskState>()(
           earnFired = opened.earnFired;
           dividends = opened.dividends;
           ctx = opened.ctx;
+          hand = opened.hand;
           if (opened.payout) cash += opened.payout;
           if (opened.payToast) toast = opened.payToast;
         } else if (
@@ -657,6 +743,7 @@ export const useDesk = create<DeskState>()(
           const started = beginAuctionSession(quotes, auction, "close", ctx);
           quotes = started.quotes;
           auction = started.book;
+          if (halt && !halt.lifted) extraNews.unshift(auctionHaltNews(halt, clock, "close"));
         }
 
         const morningMatch = p.hour === 9 && p.minute === 20 && !auction.morningDone;
@@ -698,6 +785,7 @@ export const useDesk = create<DeskState>()(
             earnFired = opened.earnFired;
             dividends = opened.dividends;
             ctx = opened.ctx;
+            hand = opened.hand;
             if (opened.payout) cash += opened.payout;
             if (opened.payToast) toast = opened.payToast;
           }
@@ -740,6 +828,7 @@ export const useDesk = create<DeskState>()(
             dividends,
             dayEquity,
             dayEquityKey,
+            hand,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
@@ -748,6 +837,9 @@ export const useDesk = create<DeskState>()(
         } else if (isAuctionPhaseWalk(clock, auction)) {
           quotes = stepAuctionIep(quotes, auction, ctx);
           const ph = sessionPhase(clock);
+          if (halt && !halt.lifted && !/停牌|暫停買賣|復牌/.test(news[0]?.text ?? "")) {
+            extraNews.unshift(auctionHaltNews(halt, clock, ph.startsWith("close") ? "close" : "open"));
+          }
           if (ph === "close-input" || ph === "close-random") {
             candles = applyTickCandles(candles, quotes, clock, false, ctx.halted, true);
           }
@@ -770,6 +862,7 @@ export const useDesk = create<DeskState>()(
           dividends,
           dayEquity,
           dayEquityKey,
+          hand,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -959,6 +1052,7 @@ export const useDesk = create<DeskState>()(
         dayEquity: s.dayEquity,
         dayEquityKey: s.dayEquityKey,
         indicators: s.indicators,
+        hand: s.hand,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({
