@@ -1,4 +1,5 @@
 export type InstrumentKind = "index" | "etf" | "stock" | "crypto";
+export type Board = "HK" | "JP" | "US";
 
 export type Instrument = {
   symbol: string;
@@ -12,6 +13,7 @@ export type Instrument = {
   weight: number;
   pointValue: number;
   maxLeverage: number;
+  market?: Board;
 };
 
 export const STARTING_CASH = 10_000;
@@ -503,24 +505,113 @@ export const UNIVERSE: Instrument[] = [
     pointValue: 1,
     maxLeverage: 2,
   },
+  {
+    symbol: "N225",
+    name: "日經指數",
+    kind: "index",
+    sector: "指數",
+    start: 68900,
+    vol: 0.011,
+    beta: 1,
+    lot: 1,
+    weight: 0,
+    pointValue: 1,
+    maxLeverage: 10,
+    market: "JP",
+  },
+  { symbol: "7203", name: "豐田汽車", kind: "stock", sector: "汽車", start: 3180, vol: 0.009, beta: 0.9, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "8306", name: "三菱UFJ", kind: "stock", sector: "金融", start: 2140, vol: 0.008, beta: 1.05, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "9984", name: "軟銀集團", kind: "stock", sector: "科技", start: 11280, vol: 0.016, beta: 1.35, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "6758", name: "索尼集團", kind: "stock", sector: "科技", start: 3780, vol: 0.011, beta: 1.1, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "8035", name: "東京電子", kind: "stock", sector: "科技", start: 28600, vol: 0.018, beta: 1.4, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "6501", name: "日立", kind: "stock", sector: "工業", start: 4280, vol: 0.01, beta: 1.05, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "9983", name: "迅銷", kind: "stock", sector: "消費", start: 52400, vol: 0.012, beta: 0.85, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "8316", name: "三井住友FG", kind: "stock", sector: "金融", start: 4180, vol: 0.008, beta: 1.05, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "7974", name: "任天堂", kind: "stock", sector: "消費", start: 11850, vol: 0.013, beta: 0.8, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  { symbol: "6861", name: "基恩士", kind: "stock", sector: "科技", start: 69800, vol: 0.012, beta: 1.15, lot: 100, weight: 0, pointValue: 0.051, maxLeverage: 5, market: "JP" },
+  {
+    symbol: "DJI",
+    name: "道瓊斯指數",
+    kind: "index",
+    sector: "指數",
+    start: 46500,
+    vol: 0.008,
+    beta: 1,
+    lot: 1,
+    weight: 0,
+    pointValue: 1,
+    maxLeverage: 10,
+    market: "US",
+  },
+  {
+    symbol: "SPX",
+    name: "標普500",
+    kind: "index",
+    sector: "指數",
+    start: 6200,
+    vol: 0.009,
+    beta: 1,
+    lot: 1,
+    weight: 0,
+    pointValue: 1,
+    maxLeverage: 10,
+    market: "US",
+  },
+  {
+    symbol: "IXIC",
+    name: "納斯達克綜合",
+    kind: "index",
+    sector: "指數",
+    start: 20500,
+    vol: 0.012,
+    beta: 1,
+    lot: 1,
+    weight: 0,
+    pointValue: 1,
+    maxLeverage: 10,
+    market: "US",
+  },
+  { symbol: "NVDA", name: "輝達", kind: "stock", sector: "科技", start: 228.38, vol: 0.02, beta: 1.45, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "AAPL", name: "蘋果", kind: "stock", sector: "科技", start: 333, vol: 0.012, beta: 1.15, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "MSFT", name: "微軟", kind: "stock", sector: "科技", start: 513, vol: 0.011, beta: 1.1, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "GOOGL", name: "Alphabet", kind: "stock", sector: "科技", start: 344, vol: 0.013, beta: 1.15, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "AMZN", name: "亞馬遜", kind: "stock", sector: "消費", start: 249, vol: 0.014, beta: 1.2, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "META", name: "Meta", kind: "stock", sector: "科技", start: 725, vol: 0.016, beta: 1.25, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "AVGO", name: "博通", kind: "stock", sector: "科技", start: 351, vol: 0.018, beta: 1.35, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "TSLA", name: "特斯拉", kind: "stock", sector: "汽車", start: 355, vol: 0.022, beta: 1.5, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "JPM", name: "摩根大通", kind: "stock", sector: "金融", start: 331, vol: 0.009, beta: 1.05, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "LLY", name: "禮來", kind: "stock", sector: "醫藥", start: 1157, vol: 0.013, beta: 0.75, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
+  { symbol: "XOM", name: "埃克森美孚", kind: "stock", sector: "能源", start: 163, vol: 0.01, beta: 0.7, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
 ];
 
 export const BY_SYMBOL = Object.fromEntries(UNIVERSE.map((i) => [i.symbol, i]));
 
-function pinRank(symbol: string): number {
+function pinRank(symbol: string, board: Board = "HK"): number {
+  if (board === "JP") return symbol === "N225" ? 0 : 1;
+  if (board === "US") {
+    if (symbol === "DJI") return 0;
+    if (symbol === "SPX") return 1;
+    if (symbol === "IXIC") return 2;
+    return 3;
+  }
   if (symbol === HSI_SYMBOL) return 0;
   if (symbol === BTC_SYMBOL) return 1;
   return 2;
 }
 
-/** HSI and BTC pinned; remaining names by numeric stock code ascending. */
-export function listedInstruments(list: Instrument[] = UNIVERSE): Instrument[] {
-  return [...list].sort((a, b) => {
-    const ra = pinRank(a.symbol);
-    const rb = pinRank(b.symbol);
+/** 指數置頂；港股／日股按代號，美股按代碼。 */
+export function listedInstruments(list: Instrument[] = UNIVERSE, board: Board = "HK"): Instrument[] {
+  const filtered = list.filter((i) => (i.market ?? "HK") === board);
+  return filtered.sort((a, b) => {
+    const ra = pinRank(a.symbol, board);
+    const rb = pinRank(b.symbol, board);
     if (ra !== rb) return ra - rb;
-    if (ra < 2) return 0;
-    return parseInt(a.symbol, 10) - parseInt(b.symbol, 10);
+    if (board === "US" && ra >= 3) return a.symbol.localeCompare(b.symbol);
+    if (ra < (board === "US" ? 3 : board === "JP" ? 1 : 2)) return 0;
+    const na = parseInt(a.symbol, 10);
+    const nb = parseInt(b.symbol, 10);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return a.symbol.localeCompare(b.symbol);
   });
 }
 

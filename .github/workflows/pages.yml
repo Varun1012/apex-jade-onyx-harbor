@@ -66,5 +66,12 @@ jobs:
           grep -q "出牌" app.js
           grep -q "dayEq" app.js
           grep -q "data-ohlc" app.js
+          grep -q "日經指數" app.js
+          grep -q "標普500" app.js
+          grep -q "道瓊斯" app.js
+          grep -q "納斯達克" app.js
+          grep -q "NVDA" app.js
+          grep -q "7203" app.js
+          grep -q "data-board" app.js
           node --check app.js
           echo "checks passed"

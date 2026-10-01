@@ -253,6 +253,7 @@ export function applyTickCandles(
     const q = quotes[inst.symbol];
     if (!q) continue;
     if (skip?.has(inst.symbol)) continue;
+    if ((inst.market ?? "HK") !== "HK") continue;
     const c = useIep && q.iep > 0 ? q.iep : q.last;
     const unit = volumeUnit(inst);
     const chg = q.prevClose ? Math.abs(c - q.prevClose) / q.prevClose : 0;
@@ -271,6 +272,38 @@ export function applyTickCandles(
     for (const tf of TFS) {
       const list = prev[tf] ?? [];
       prev[tf] = pushTick(list, { t: ts[tf], o: c, h: c, l: c, c, v: tickV }, CAP[tf], gap);
+    }
+  }
+  return book;
+}
+
+export function applyForeignCandles(
+  book: CandleBook,
+  quotes: Record<string, Quote>,
+  clock: number,
+  symbols: string[],
+  gap = false,
+): CandleBook {
+  if (!symbols.length) return book;
+  const ts: Record<Tf, number> = {
+    "5m": Math.floor(clock / 300_000) * 300_000,
+    "15m": Math.floor(clock / 900_000) * 900_000,
+    "1d": Math.floor(clock / 86_400_000) * 86_400_000,
+  };
+  for (const symbol of symbols) {
+    const inst = UNIVERSE.find((i) => i.symbol === symbol);
+    const q = quotes[symbol];
+    if (!inst || !q) continue;
+    const c = q.last;
+    const unit = volumeUnit(inst);
+    const tickV = Math.max(1, Math.round(unit * (4 + Math.random() * 12)));
+    let prev = book[symbol];
+    if (!prev) {
+      prev = seedSymbol(inst, c, barTimes(clock, "1d", 70), barTimes(clock, "15m", 64), barTimes(clock, "5m", 90));
+      book[symbol] = prev;
+    }
+    for (const tf of TFS) {
+      prev[tf] = pushTick(prev[tf] ?? [], { t: ts[tf], o: c, h: c, l: c, c, v: tickV }, CAP[tf], gap);
     }
   }
   return book;
@@ -311,6 +344,7 @@ export function dropPrematureOpenBars(book: CandleBook, clock: number): CandleBo
   for (const inst of UNIVERSE) {
     const slot = book[inst.symbol];
     if (!slot) continue;
+    if ((inst.market ?? "HK") !== "HK") continue;
     for (const tf of TFS) {
       const list = slot[tf];
       if (!list?.length) continue;
@@ -325,6 +359,7 @@ export function adoptFormingBars(book: CandleBook, clock: number): CandleBook {
   for (const inst of UNIVERSE) {
     const slot = book[inst.symbol];
     if (!slot) continue;
+    if ((inst.market ?? "HK") !== "HK") continue;
     for (const tf of TFS) {
       const list = slot[tf];
       const last = list?.[list.length - 1];

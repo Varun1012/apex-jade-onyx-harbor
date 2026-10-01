@@ -1,4 +1,5 @@
 import { hkDate, hkParts } from "../format";
+import { anyBoardActive, nextBoardActive } from "./boards";
 import {
   BOYAA_SYMBOL,
   BTC_SYMBOL,
@@ -168,7 +169,7 @@ export function isClockOn(t: number): boolean {
 }
 
 export function usesHkAuction(inst: Instrument): boolean {
-  return inst.kind !== "crypto";
+  return (inst.market ?? "HK") === "HK" && inst.kind !== "crypto";
 }
 
 export function nextMarketOpen(from: number): number {
@@ -195,13 +196,7 @@ export function advanceClock(t: number, minutes: number): number {
   let left = minutes;
   while (left > 0) {
     cur += 60_000;
-    const p = hkParts(cur);
-    const mins = p.hour * 60 + p.minute;
-    if (mins === 12 * 60) {
-      cur = hkDate(p.year, p.month, p.day, 13, 0);
-    } else if (mins >= 16 * 60 + 10 || p.weekday === 0 || p.weekday === 6) {
-      cur = nextMarketOpen(cur);
-    }
+    if (!anyBoardActive(cur)) cur = nextBoardActive(cur);
     left -= 1;
   }
   return cur;
@@ -447,6 +442,7 @@ export function stepMarket(
   }
 
   for (const inst of UNIVERSE) {
+    if ((inst.market ?? "HK") !== "HK") continue;
     if (inst.kind === "index" || inst.kind === "crypto") continue;
     if (ctx?.halted?.has(inst.symbol)) continue;
     const q = quotes[inst.symbol];
@@ -485,7 +481,7 @@ export function stepMarket(
     writeQuote(next, nextHist, histories, inst, quotes, raw);
   }
 
-  const weighted = UNIVERSE.filter((i) => i.weight > 0);
+  const weighted = UNIVERSE.filter((i) => i.weight > 0 && (i.market ?? "HK") === "HK");
   const base = weighted.reduce((s, i) => s + i.start * i.weight, 0);
   const now = weighted.reduce((s, i) => s + (next[i.symbol]?.last ?? i.start) * i.weight, 0);
   const implied = hsiInst.start * (now / base);
@@ -537,6 +533,11 @@ export function applyPriceShock(
 export function rollDay(quotes: Record<string, Quote>): Record<string, Quote> {
   const next: Record<string, Quote> = {};
   for (const [sym, q] of Object.entries(quotes)) {
+    const inst = BY_SYMBOL[sym];
+    if (inst && (inst.market ?? "HK") !== "HK") {
+      next[sym] = q;
+      continue;
+    }
     next[sym] = {
       ...q,
       open: q.last,

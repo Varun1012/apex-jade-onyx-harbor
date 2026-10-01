@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { CandleChart } from "@/components/candle-chart";
 import { Sparkline } from "@/components/sparkline";
 import { formatHkd, formatPct, formatPrice, formatQty, formatSimTime } from "@/lib/format";
-import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, listedInstruments } from "@/lib/market/universe";
+import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, listedInstruments, type Board } from "@/lib/market/universe";
 import { advise } from "@/lib/market/ta";
 import type { Tf } from "@/lib/market/candles";
 import { createAmbient, type AmbientHandle } from "@/lib/ambient";
@@ -28,14 +28,23 @@ import {
   usesHkAuction,
 } from "@/lib/market/engine";
 import { formatDayKey, formatDps, formatMultiple, formatYi, haltResumeLabel, isHalted, nextResults, stockMultiples } from "@/lib/market/corporate";
+import { boardLabel, boardRules, symbolLabel, symbolPhase } from "@/lib/market/boards";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
-  return formatPrice(n, BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD");
+  const inst = BY_SYMBOL[symbol];
+  if (!inst || inst.kind === "index") {
+    return n.toLocaleString("en-HK", { maximumFractionDigits: inst?.kind === "index" ? 0 : 2 });
+  }
+  if (inst.kind === "crypto" || inst.market === "US") return formatPrice(n, "USD");
+  if (inst.market === "JP") return formatPrice(n, "JPY");
+  return formatPrice(n, "HKD");
 }
 
 function defaultQty(symbol: string) {
-  return BY_SYMBOL[symbol]?.kind === "crypto" ? "0.01" : "1";
+  const i = BY_SYMBOL[symbol];
+  if (i?.kind === "crypto") return "0.01";
+  return "1";
 }
 
 function sanitizeQty(raw: string, symbol: string) {
@@ -123,15 +132,38 @@ function HeaderBar() {
   const won = useDesk((s) => s.won);
   const busted = useDesk((s) => s.busted);
   const reset = useDesk((s) => s.reset);
+  const board = useDesk((s) => s.board ?? "HK");
+  const setBoard = useDesk((s) => s.setBoard);
+  const boards: { id: Board; label: string }[] = [
+    { id: "HK", label: "港股" },
+    { id: "JP", label: "日股" },
+    { id: "US", label: "美股" },
+  ];
+  const title = board === "JP" ? "日股模擬盤" : board === "US" ? "美股模擬盤" : "港股模擬盤";
 
   return (
     <header className="border-b border-border px-4 py-3 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
+          <div className="mb-2 flex rounded-md border border-border p-0.5">
+            {boards.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setBoard(b.id)}
+                className={cn(
+                  "h-8 rounded-sm px-3 text-xs",
+                  board === b.id ? "bg-secondary text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
           <p className="text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
-            PAPER HANG SENG
+            PAPER MARKETS
           </p>
-          <h1 className="font-medium text-xl tracking-tight">港股模擬盤</h1>
+          <h1 className="font-medium text-xl tracking-tight">{title}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <SpeedControl speed={speed} onChange={setSpeed} disabled={won || busted} />
@@ -150,9 +182,7 @@ function HeaderBar() {
       </div>
       <div className="mt-4">
         <GoalBar />
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。
-        </p>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">{boardRules(board)}</p>
       </div>
     </header>
   );
@@ -160,25 +190,51 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
-  return <Stat label="模擬時間" value={formatSimTime(clock)} sub={<span>{sessionLabel(clock)}</span>} />;
+  const board = useDesk((s) => s.board ?? "HK");
+  const zone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
+  const sub = board === "HK" ? sessionLabel(clock) : boardLabel(clock, board);
+  const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
+  return <Stat label={`模擬時間（${zoneName}）`} value={formatSimTime(clock, zone)} sub={<span>{sub}</span>} />;
 }
 
 function HsiStat() {
-  const last = useDesk((s) => s.quotes.HSI?.last);
-  const prev = useDesk((s) => s.quotes.HSI?.prevClose);
-  const hsiChg = last && prev ? (last - prev) / prev : 0;
+  const board = useDesk((s) => s.board ?? "HK");
+  const hsi = useDesk((s) => s.quotes.HSI);
+  const n225 = useDesk((s) => s.quotes.N225);
+  const spx = useDesk((s) => s.quotes.SPX);
+  const dji = useDesk((s) => s.quotes.DJI);
+  const ixic = useDesk((s) => s.quotes.IXIC);
+  if (board === "US") {
+    const chg = spx && spx.prevClose ? (spx.last - spx.prevClose) / spx.prevClose : 0;
+    return (
+      <Stat
+        label="標普500"
+        value={spx ? Math.round(spx.last).toLocaleString("en-HK") : "—"}
+        sub={
+          <span className="text-muted-foreground">
+            道指 {dji ? Math.round(dji.last).toLocaleString("en-HK") : "—"}
+            {" · "}
+            納指 {ixic ? Math.round(ixic.last).toLocaleString("en-HK") : "—"}
+            {spx ? (
+              <>
+                {" "}
+                <Signed n={chg}>{formatPct(chg)}</Signed>
+              </>
+            ) : null}
+          </span>
+        }
+      />
+    );
+  }
+  const q = board === "JP" ? n225 : hsi;
+  const label = board === "JP" ? "日經指數" : "恒生指數";
+  if (!q) return <Stat label={label} value="—" />;
+  const chg = (q.last - q.prevClose) / q.prevClose;
   return (
     <Stat
-      label="恒生指數"
-      value={last ? last.toLocaleString("en-HK") : "—"}
-      sub={
-        last && prev ? (
-          <Signed n={hsiChg}>
-            {last - prev >= 0 ? "+" : "−"}
-            {Math.abs(last - prev).toFixed(0)} {formatPct(hsiChg)}
-          </Signed>
-        ) : null
-      }
+      label={label}
+      value={Math.round(q.last).toLocaleString("en-HK")}
+      sub={<Signed n={chg}>{formatPct(chg)}</Signed>}
     />
   );
 }
@@ -235,10 +291,11 @@ function GoalBar() {
 function CardHand() {
   const hand = useDesk((s) => s.hand);
   const clock = useDesk((s) => s.clock);
+  const board = useDesk((s) => s.board ?? "HK");
   const playCard = useDesk((s) => s.playCard);
   const phase = sessionPhase(clock);
   const openAuction = phase === "open-input" || phase === "open-cool";
-  if (!openAuction || !hand?.cards.length || hand.dayKey !== hkDayKey(clock)) return null;
+  if (board !== "HK" || !openAuction || !hand?.cards.length || hand.dayKey !== hkDayKey(clock)) return null;
   return (
     <div className="border-b border-border bg-surface px-4 py-2 sm:px-6">
       <p className="mb-1.5 text-[11px] text-muted-foreground">開市競價 · 手牌 3 張 · 點擊打出，個股卡作用於目前選擇</p>
@@ -449,12 +506,13 @@ function SpeedControl({
 function Watchlist() {
   const [q, setQ] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
+  const board = useDesk((s) => s.board ?? "HK");
   const rows = useMemo(() => {
     const n = q.trim();
-    return listedInstruments().filter(
+    return listedInstruments(undefined, board).filter(
       (i) => !n || i.symbol.includes(n) || i.name.includes(n) || i.sector.includes(n),
     );
-  }, [q]);
+  }, [q, board]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -600,7 +658,7 @@ function Ticket() {
       </div>
       <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        港股慣例：綠升紅跌。持續交易時買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交，開／收市價相對前收可出現缺口。自選 BOLL 為布林帶(20,2)，RSI 為 14 期，30／70 為超賣超買。
+        綠升紅跌。持續交易、盤前與盤後買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交。自選 BOLL 為布林帶(20,2)，RSI 為 14 期，30／70 為超賣超買。帳戶以港元結算。
       </p>
       <OrderTicket symbol={selected} />
       <FinReport symbol={selected} />
@@ -618,7 +676,26 @@ function TicketHead({ symbol }: { symbol: string }) {
   const halted = useDesk((s) => isHalted(s.halt, symbol, hkDayKey(s.clock), s.clock));
   if (last == null || prev == null) return null;
   const chg = (last - prev) / prev;
-  const auction = isAuction(clock) && usesHkAuction(inst);
+  const mkt = inst.market ?? "HK";
+  const foreignPh = mkt === "HK" ? null : symbolPhase(clock, inst);
+  const auction =
+    mkt === "HK"
+      ? isAuction(clock) && usesHkAuction(inst)
+      : foreignPh === "open-input" || foreignPh === "open-cool" || foreignPh === "close-input";
+  const badge =
+    halted
+      ? "停牌"
+      : inst.kind === "index"
+        ? "指數差價 · 每點 HK$1"
+        : mkt === "JP"
+          ? "日股 · 日圓報價 · 約 0.051 兌港元 · 可碎股"
+          : mkt === "US"
+            ? "美股 · 美元報價 · 約 7.8 兌港元"
+            : inst.kind === "etf"
+              ? "ETF"
+              : inst.kind === "crypto"
+                ? "加密貨幣 · USD · 約 7.8 兌港元"
+                : "正股 · 支援碎股";
   return (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -626,17 +703,7 @@ function TicketHead({ symbol }: { symbol: string }) {
           <p className="font-mono text-sm text-muted-foreground">{inst.symbol}</p>
           <h2 className="text-xl font-medium tracking-tight">{inst.name}</h2>
         </div>
-        <Badge variant={halted ? "outline" : inst.kind === "index" ? "outline" : "default"}>
-          {halted
-            ? "停牌"
-            : inst.kind === "index"
-            ? "指數差價 · 每點 HK$1"
-            : inst.kind === "etf"
-              ? "ETF"
-              : inst.kind === "crypto"
-                ? "加密貨幣 · USD · 約 7.8 兌港元"
-                : "正股 · 支援碎股"}
-        </Badge>
+        <Badge variant={halted ? "outline" : inst.kind === "index" ? "outline" : "default"}>{badge}</Badge>
       </div>
       <div className="mt-3 flex items-end gap-4">
         <p className="font-mono text-3xl tabular-nums tracking-tight">{px(last, symbol)}</p>
@@ -661,7 +728,7 @@ function CandleOhlc({ symbol, tf }: { symbol: string; tf: Tf }) {
     return list?.[list.length - 1] ?? null;
   });
   if (!bar || live == null) return null;
-  const freeze = isPreOpenSession(clock);
+  const freeze = (BY_SYMBOL[symbol]?.market ?? "HK") === "HK" && isPreOpenSession(clock);
   const o = bar.o;
   const h = freeze ? bar.h : Math.max(bar.h, live);
   const l = freeze ? bar.l : Math.min(bar.l, live);
@@ -692,8 +759,9 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
   const pos = useDesk((s) => s.positions.find((p) => p.symbol === symbol) ?? null);
   const bid = useDesk((s) => s.quotes[symbol]?.bid);
   const ask = useDesk((s) => s.quotes[symbol]?.ask);
-  const ccy = BY_SYMBOL[symbol]?.kind === "crypto" ? "USD" : "HKD";
-  const freeze = useDesk((s) => isPreOpenSession(s.clock));
+  const inst0 = BY_SYMBOL[symbol];
+  const ccy = inst0?.kind === "crypto" || inst0?.market === "US" ? "USD" : inst0?.market === "JP" ? "JPY" : "HKD";
+  const freeze = useDesk((s) => (inst0?.market ?? "HK") === "HK" && isPreOpenSession(s.clock));
   const advice = useMemo(() => {
     const series = useDesk.getState().candles[symbol]?.[tf] ?? [];
     return advise(series, freeze ? undefined : live, ccy);
@@ -779,6 +847,16 @@ function FinReport({ symbol }: { symbol: string }) {
   const div = useDesk((s) => s.dividends?.[symbol]);
   const last = useDesk((s) => s.quotes[symbol]?.last);
   if (!inst || inst.kind !== "stock") return null;
+  if (inst.market === "JP" || inst.market === "US") {
+    return (
+      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+        {inst.market === "JP" ? "日股" : "美股"}
+        以當地時段報價，帳戶仍以港元結算。指數每點 HK$1。個股
+        {inst.market === "JP" ? "按約 0.051 港元／日圓" : "按約 7.8 港元／美元"}
+        入帳。業績與停牌公告只覆蓋港股。
+      </p>
+    );
+  }
   const next = nextResults(symbol, clock);
   const halted = isHalted(halt, symbol, hkDayKey(clock), clock);
   const rev = report?.revenue ?? 0;
@@ -861,15 +939,21 @@ function BidAsk({ symbol }: { symbol: string }) {
   const iep = useDesk((s) => s.quotes[symbol]?.iep);
   const clock = useDesk((s) => s.clock);
   const inst = BY_SYMBOL[symbol];
-  if (bid == null || ask == null) return null;
-  const auction = !!(inst && usesHkAuction(inst) && isAuction(clock));
+  if (bid == null || ask == null || !inst) return null;
+  const mkt = inst.market ?? "HK";
+  const foreignPh = mkt === "HK" ? null : symbolPhase(clock, inst);
+  const auction =
+    mkt === "HK"
+      ? usesHkAuction(inst) && isAuction(clock)
+      : foreignPh === "open-input" || foreignPh === "open-cool" || foreignPh === "close-input";
+  const phaseText = mkt === "HK" ? sessionLabel(clock) : symbolLabel(clock, inst);
   const pxIep = iep ?? lastOr(bid, ask);
   if (auction) {
     return (
       <div className="mt-3 rounded-lg border border-border bg-secondary/60 px-3 py-2">
         <p className="text-[11px] text-muted-foreground">競價對盤價 IEP（掛盤待對盤，即時不成交）</p>
         <p className="font-mono text-lg tabular-nums">{px(pxIep, symbol)}</p>
-        <p className="text-[11px] text-muted-foreground">{sessionLabel(clock)}</p>
+        <p className="text-[11px] text-muted-foreground">{phaseText}</p>
       </div>
     );
   }
@@ -952,14 +1036,27 @@ function OrderTicket({ symbol }: { symbol: string }) {
   if (ask == null || bid == null) return null;
   const n = parseQty(qtyView, symbol);
   const levClamped = Math.min(lev, inst.maxLeverage);
-  const auction = usesHkAuction(inst) && isAuction(clock);
+  const mkt = inst.market ?? "HK";
+  const foreignPh = mkt === "HK" ? null : symbolPhase(clock, inst);
+  const auction =
+    mkt === "HK"
+      ? usesHkAuction(inst) && isAuction(clock)
+      : foreignPh === "open-input" || foreignPh === "open-cool" || foreignPh === "close-input";
   const pxTrade = auction ? iep ?? ask : ask;
   const pxSell = auction ? iep ?? bid : bid;
   const buyNotional = n * pxTrade * inst.pointValue;
   const sellNotional = n * pxSell * inst.pointValue;
   const buyMargin = buyNotional / levClamped;
-  const canSubmit = (!auction || canEnterAuctionOrders(clock)) && !halted;
-  const phase = sessionPhase(clock);
+  const canSubmit =
+    mkt === "HK"
+      ? (!auction || canEnterAuctionOrders(clock)) && !halted
+      : (foreignPh === "continuous" ||
+          foreignPh === "pre" ||
+          foreignPh === "night" ||
+          foreignPh === "open-input" ||
+          foreignPh === "close-input") &&
+        !halted;
+  const phase = mkt === "HK" ? sessionPhase(clock) : foreignPh;
 
   function submit(side: "buy" | "sell") {
     const qty = parseQty(qtyRef.current, symbol);
@@ -975,7 +1072,7 @@ function OrderTicket({ symbol }: { symbol: string }) {
         </p>
       ) : null}
       <label className="text-xs text-muted-foreground">
-        數量{inst.kind === "index" ? "（口）" : inst.kind === "crypto" ? "（BTC）" : "（股）"}
+        數量{inst.kind === "index" ? "（口）" : inst.kind === "crypto" ? "（BTC）" : inst.market === "JP" ? "（股，模擬可碎股）" : "（股）"}
         <QtyField resetKey={symbol} qtyRef={qtyRef} onTyped={setQtyView} />
       </label>
       <div>
@@ -1015,13 +1112,22 @@ function OrderTicket({ symbol }: { symbol: string }) {
         <p className="text-[11px] text-muted-foreground">停牌期間暫停買賣，持倉凍結至復牌。</p>
       ) : !canSubmit && auction ? (
         <p className="text-[11px] text-muted-foreground">
-          {phase === "open-cool" ? "冷靜期暫停輸入買賣盤，09:30 開市後可即時成交。" : "隨機對盤期間暫停輸入買賣盤。"}
+          {phase === "open-cool"
+            ? "競價冷靜期暫停輸入買賣盤。"
+            : phase === "close-random"
+              ? "隨機對盤期間暫停輸入買賣盤。"
+              : "此競價階段暫停輸入買賣盤。"}
+        </p>
+      ) : !canSubmit ? (
+        <p className="text-[11px] text-muted-foreground">
+          {phase === "lunch" ? "午休，暫停落盤。" : symbolLabel(clock, inst) || "該市場休市，未能落盤。"}
         </p>
       ) : null}
       <p className="text-[11px] text-muted-foreground">
         賣出名義 {formatHkd(sellNotional)}
         {levClamped > 1 ? ` · 保證金佔名義 1/${levClamped}` : ""}
-        {inst.kind === "crypto" ? " · 報價美元、按約 7.8 兌港元入帳" : ""}
+        {inst.kind === "crypto" || inst.market === "US" ? " · 報價美元、按約 7.8 兌港元入帳" : ""}
+        {inst.market === "JP" ? " · 報價日圓、按約 0.051 兌港元入帳" : ""}
       </p>
     </div>
   );

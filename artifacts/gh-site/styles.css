@@ -160,6 +160,7 @@ section.col { background: var(--bg); padding: 16px; min-width: 0; }
   font-size: 13px;
 }
 .bar button.on { background: var(--secondary); color: var(--fg); }
+.boards { margin: 0 0 8px; width: fit-content; }
 .ghost {
   border: 1px solid var(--border);
   color: var(--fg);

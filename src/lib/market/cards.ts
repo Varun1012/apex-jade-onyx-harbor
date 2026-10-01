@@ -63,7 +63,7 @@ export function cardMoves(card: GameCard, focus: string): { symbol: string; gap:
     const sectors = card.sector.split("|");
     const out: { symbol: string; gap: number }[] = [];
     for (const inst of UNIVERSE) {
-      if (inst.kind === "stock" && sectors.includes(inst.sector)) {
+      if (inst.kind === "stock" && (inst.market ?? "HK") === "HK" && sectors.includes(inst.sector)) {
         out.push({ symbol: inst.symbol, gap: card.sign * card.mag });
       }
     }
@@ -73,7 +73,7 @@ export function cardMoves(card: GameCard, focus: string): { symbol: string; gap:
   const ext = card.sign * card.mag;
   const out = [{ symbol: "HSI", gap: ext }];
   for (const inst of UNIVERSE) {
-    if (inst.kind !== "stock") continue;
+    if ((inst.market ?? "HK") !== "HK" || inst.kind !== "stock") continue;
     out.push({ symbol: inst.symbol, gap: externalStockGap(inst.beta, ext) });
   }
   return out;

@@ -275,7 +275,7 @@ export function addTradingDays(from: number, n: number): number {
 }
 
 export function stockNames(): Instrument[] {
-  return UNIVERSE.filter((i) => i.kind === "stock");
+  return UNIVERSE.filter((i) => i.kind === "stock" && (i.market ?? "HK") === "HK");
 }
 
 function haltClockMins(clock: number): number {

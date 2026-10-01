@@ -8,6 +8,7 @@ import {
   BOYAA_SYMBOL,
   roundTick,
   tickSize,
+  type Board,
 } from "./market/universe";
 import { hkParts } from "./format";
 import {
@@ -42,8 +43,10 @@ import {
   expandCandleBook,
   repairQuotesFromCandles,
   seedCandles,
+  applyForeignCandles,
   type CandleBook,
 } from "./market/candles";
+import { emptyFx, stepForeign, symbolPhase, type FxState } from "./market/boards";
 import {
   advanceClock,
   auctionGapNews,
@@ -54,10 +57,8 @@ import {
   externalOvernightNews,
   externalStockGap,
   hkDayKey,
-  isClockOn,
   isContinuous,
   matchAuction,
-  nextMarketOpen,
   rollAuctionBook,
   rollDay,
   rollExternalGap,
@@ -130,9 +131,12 @@ type DeskState = {
   dayEquityKey: string;
   indicators: Indicators;
   hand: HandState | null;
+  board: Board;
+  fx: FxState;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
+  setBoard: (b: Board) => void;
   toggleIndicator: (key: keyof Indicators) => void;
   playCard: (id: string) => void;
   setMusicOn: (on: boolean) => void;
@@ -221,6 +225,8 @@ function initial() {
     dayEquityKey: hkDayKey(clock),
     indicators: { boll: false, rsi: false },
     hand: dealHand(hkDayKey(clock)),
+    board: "HK" as Board,
+    fx: emptyFx(),
   };
 }
 
@@ -458,7 +464,7 @@ function openTradingDay(
   const ext = rollExternalGap(clock);
   gapAdj.HSI = (gapAdj.HSI ?? 0) + ext;
   for (const inst of UNIVERSE) {
-    if (inst.kind !== "stock") continue;
+    if ((inst.market ?? "HK") !== "HK" || inst.kind !== "stock") continue;
     gapAdj[inst.symbol] = (gapAdj[inst.symbol] ?? 0) + externalStockGap(inst.beta, ext);
   }
   const extNews = externalOvernightNews(ext, clock);
@@ -573,6 +579,13 @@ export const useDesk = create<DeskState>()(
       },
       select: (symbol) => set({ selected: symbol }),
       setSpeed: (s) => set({ speed: s }),
+      setBoard: (b) =>
+        set((s) => {
+          const cur = BY_SYMBOL[s.selected];
+          const same = (cur?.market ?? "HK") === b;
+          const selected = same ? s.selected : b === "JP" ? "N225" : b === "US" ? "SPX" : "HSI";
+          return { board: b, selected };
+        }),
       toggleIndicator: (key) =>
         set((s) => {
           const cur = s.indicators ?? { boll: false, rsi: false };
@@ -652,7 +665,6 @@ export const useDesk = create<DeskState>()(
         const st = get();
         if (st.won || st.busted || st.speed === 0) return;
         let clock = advanceClock(st.clock, 1);
-        if (!isClockOn(clock)) clock = nextMarketOpen(clock);
         const p = hkParts(clock);
         let dayKey = hkDayKey(clock);
         let quotes = st.quotes;
@@ -690,6 +702,7 @@ export const useDesk = create<DeskState>()(
         let dayEquity = st.dayEquity;
         let dayEquityKey = st.dayEquityKey ?? "";
         let hand = st.hand ?? null;
+        let fx = st.fx ?? emptyFx();
         if (!(dayEquity > 0) || !dayEquityKey) {
           dayEquity = equityOf(cash, positions, quotes);
           dayEquityKey = dayKey;
@@ -698,6 +711,29 @@ export const useDesk = create<DeskState>()(
           if (dayEquityKey === dayKey) return;
           dayEquity = equityOf(cash, positions, quotes);
           dayEquityKey = dayKey;
+        };
+
+        const absorbForeign = () => {
+          const fr = stepForeign(quotes, clock, fx);
+          quotes = fr.quotes;
+          fx = fr.fx;
+          if (fr.moved.length) candles = applyForeignCandles(candles, quotes, clock, fr.moved, fr.gap);
+          if (pending) {
+            const inst = BY_SYMBOL[pending.symbol];
+            if (inst && (inst.market === "JP" || inst.market === "US")) {
+              const ph = symbolPhase(clock, inst);
+              if (ph === "continuous" || ph === "pre" || ph === "night") {
+                const filled = fillPending(pending, quotes, cash, positions, fills, clock);
+                if (filled) {
+                  cash = filled.cash;
+                  positions = filled.positions;
+                  fills = filled.fills;
+                  toast = filled.toast;
+                  pending = null;
+                }
+              }
+            }
+          }
         };
 
         if (auction.dayKey !== dayKey) {
@@ -773,22 +809,6 @@ export const useDesk = create<DeskState>()(
               pending = null;
             }
           }
-          if (closeMatch) {
-            clock = nextMarketOpen(clock);
-            dayKey = hkDayKey(clock);
-            stampDay();
-            const opened = openTradingDay(clock, quotes, halt, reports, earnFired, dividends, positions, extraNews);
-            quotes = opened.quotes;
-            auction = opened.auction;
-            halt = opened.halt;
-            reports = opened.reports;
-            earnFired = opened.earnFired;
-            dividends = opened.dividends;
-            ctx = opened.ctx;
-            hand = opened.hand;
-            if (opened.payout) cash += opened.payout;
-            if (opened.payToast) toast = opened.payToast;
-          }
         } else if (isContinuous(clock)) {
           let extreme = st.extreme ?? null;
           if (!extreme || extreme.dayKey !== dayKey) {
@@ -809,6 +829,7 @@ export const useDesk = create<DeskState>()(
           cash = liq.cash;
           positions = liq.positions;
           if (liq.toast) toast = liq.toast;
+          absorbForeign();
           const eq = equityOf(cash, positions, quotes);
           set({
             clock,
@@ -829,6 +850,7 @@ export const useDesk = create<DeskState>()(
             dayEquity,
             dayEquityKey,
             hand,
+            fx,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
@@ -845,6 +867,7 @@ export const useDesk = create<DeskState>()(
           }
         }
 
+        absorbForeign();
         const eq = equityOf(cash, positions, quotes);
         set({
           clock,
@@ -863,6 +886,7 @@ export const useDesk = create<DeskState>()(
           dayEquity,
           dayEquityKey,
           hand,
+          fx,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -874,11 +898,27 @@ export const useDesk = create<DeskState>()(
         if (!Number.isFinite(qty) || qty <= 0) return "請輸入有效股數";
         const inst = BY_SYMBOL[st.selected];
         if (!inst) return "找不到股票";
-        if (isHalted(st.halt, st.selected, hkDayKey(st.clock), st.clock)) {
+        if ((inst.market ?? "HK") !== "HK") {
+          const ph = symbolPhase(st.clock, inst);
+          if (ph === "closed" || ph === "lunch") return "該市場休市，未能落盤";
+          if (ph === "open-cool") return "競價冷靜期，暫停輸入買賣盤";
+          if (ph === "open-input" || ph === "close-input") {
+            set({
+              pending: {
+                symbol: st.selected,
+                side,
+                qty,
+                leverage: Math.min(Math.max(1, leverage), inst.maxLeverage),
+              },
+              toast: `已掛競價盤，待對盤成交：${inst.name}`,
+            });
+            return null;
+          }
+        } else if (isHalted(st.halt, st.selected, hkDayKey(st.clock), st.clock)) {
           return `${inst.name} 停牌，暫停買賣`;
         }
         const q = st.quotes[st.selected]!;
-        if (usesHkAuction(inst) && !isContinuous(st.clock)) {
+        if ((inst.market ?? "HK") === "HK" && usesHkAuction(inst) && !isContinuous(st.clock)) {
           if (!canEnterAuctionOrders(st.clock)) {
             const ph = sessionPhase(st.clock);
             if (ph === "open-cool") return "冷靜期（09:20–09:30）暫停輸入買賣盤";
@@ -1053,6 +1093,8 @@ export const useDesk = create<DeskState>()(
         dayEquityKey: s.dayEquityKey,
         indicators: s.indicators,
         hand: s.hand,
+        board: s.board,
+        fx: s.fx,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({

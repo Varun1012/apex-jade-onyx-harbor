@@ -102,7 +102,8 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       const volH = 66;
       const raw = useDesk.getState().candles[symbol]?.[tf] ?? [];
       const lastPx = useDesk.getState().quotes[symbol]?.last;
-      const freeze = isPreOpenSession(useDesk.getState().clock);
+      const freeze =
+        (BY_SYMBOL[symbol]?.market ?? "HK") === "HK" && isPreOpenSession(useDesk.getState().clock);
       const data = raw.slice(-72).map((c, i, arr) => {
         if (freeze || i !== arr.length - 1 || lastPx == null) return c;
         return { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) };

@@ -40,15 +40,52 @@
     { s: "1024", n: "快手", start: 52.4, vol: 0.015, beta: 1.45, pv: 1, lev: 5, lot: 100 },
     { s: "9961", n: "攜程集團", start: 478, vol: 0.0105, beta: 1.18, pv: 1, lev: 5, lot: 50 },
     { s: "9888", n: "百度集團", start: 91.2, vol: 0.011, beta: 1.2, pv: 1, lev: 5, lot: 50 },
+    { s: "N225", n: "日經指數", k: "index", start: 68900, vol: 0.011, beta: 1, pv: 1, lev: 10, lot: 1, m: "JP" },
+    { s: "7203", n: "豐田汽車", k: "stock", start: 3180, vol: 0.009, beta: 0.9, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "8306", n: "三菱UFJ", k: "stock", start: 2140, vol: 0.008, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "9984", n: "軟銀集團", k: "stock", start: 11280, vol: 0.016, beta: 1.35, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "6758", n: "索尼集團", k: "stock", start: 3780, vol: 0.011, beta: 1.1, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "8035", n: "東京電子", k: "stock", start: 28600, vol: 0.018, beta: 1.4, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "6501", n: "日立", k: "stock", start: 4280, vol: 0.01, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "9983", n: "迅銷", k: "stock", start: 52400, vol: 0.012, beta: 0.85, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "8316", n: "三井住友FG", k: "stock", start: 4180, vol: 0.008, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "7974", n: "任天堂", k: "stock", start: 11850, vol: 0.013, beta: 0.8, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "6861", n: "基恩士", k: "stock", start: 69800, vol: 0.012, beta: 1.15, pv: 0.051, lev: 5, lot: 100, m: "JP" },
+    { s: "DJI", n: "道瓊斯指數", k: "index", start: 46500, vol: 0.008, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
+    { s: "SPX", n: "標普500", k: "index", start: 6200, vol: 0.009, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
+    { s: "IXIC", n: "納斯達克綜合", k: "index", start: 20500, vol: 0.012, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
+    { s: "NVDA", n: "輝達", k: "stock", start: 228.38, vol: 0.02, beta: 1.45, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "AAPL", n: "蘋果", k: "stock", start: 333, vol: 0.012, beta: 1.15, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "MSFT", n: "微軟", k: "stock", start: 513, vol: 0.011, beta: 1.1, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "GOOGL", n: "Alphabet", k: "stock", start: 344, vol: 0.013, beta: 1.15, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "AMZN", n: "亞馬遜", k: "stock", start: 249, vol: 0.014, beta: 1.2, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "META", n: "Meta", k: "stock", start: 725, vol: 0.016, beta: 1.25, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "AVGO", n: "博通", k: "stock", start: 351, vol: 0.018, beta: 1.35, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "TSLA", n: "特斯拉", k: "stock", start: 355, vol: 0.022, beta: 1.5, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "JPM", n: "摩根大通", k: "stock", start: 331, vol: 0.009, beta: 1.05, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "LLY", n: "禮來", k: "stock", start: 1157, vol: 0.013, beta: 0.75, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "XOM", n: "埃克森美孚", k: "stock", start: 163, vol: 0.01, beta: 0.7, pv: 7.8, lev: 5, lot: 1, m: "US" },
   ];
   const BY = Object.fromEntries(UNIVERSE.map((i) => [i.s, i]));
-  const PIN = { HSI: 0, BTC: 1 };
-  const LIST = UNIVERSE.slice().sort((a, b) => {
-    const pa = PIN[a.s] ?? 2, pb = PIN[b.s] ?? 2;
-    if (pa !== pb) return pa - pb;
-    if (pa < 2) return 0;
-    return parseInt(a.s, 10) - parseInt(b.s, 10);
-  });
+  function mktOf(i) { return (i && i.m) || "HK"; }
+  function listed(board) {
+    const b = board || "HK";
+    return UNIVERSE.filter((i) => mktOf(i) === b).sort((a, c) => {
+      const pin = (s) => {
+        if (b === "JP") return s === "N225" ? 0 : 1;
+        if (b === "US") return s === "DJI" ? 0 : s === "SPX" ? 1 : s === "IXIC" ? 2 : 3;
+        return s === "HSI" ? 0 : s === "BTC" ? 1 : 2;
+      };
+      const pa = pin(a.s), pc = pin(c.s);
+      if (pa !== pc) return pa - pc;
+      if (b === "US" && pa >= 3) return a.s.localeCompare(c.s);
+      if (pa < (b === "US" ? 3 : b === "JP" ? 1 : 2)) return 0;
+      const na = parseInt(a.s, 10), nc = parseInt(c.s, 10);
+      if (Number.isFinite(na) && Number.isFinite(nc)) return na - nc;
+      return a.s.localeCompare(c.s);
+    });
+  }
+  function isHk(i) { return mktOf(i) === "HK"; }
 
   const HALT_WHY = ["待公布內幕消息", "待刊發業績／重大交易公告", "股價及成交量出現異常波動，待澄清", "核數／會計事項待澄清", "重大收購或出售協議洽談中"];
   const FIN_BASE = {
@@ -96,7 +133,8 @@
     }
     return t;
   }
-  function isStock(i) { return !i.k || i.k === "stock"; }
+  function isStock(i) { return i && (!i.k || i.k === "stock"); }
+  function isHkStock(i) { return isStock(i) && isHk(i); }
   function issuedShares(s) {
     const inst = BY[s], base = FIN_BASE[s], a = ANCHOR[s];
     if (!inst || !base || !a) return 0;
@@ -137,7 +175,7 @@
     const gaps = {};
     let n = 0, sum = 0;
     for (const i of UNIVERSE) {
-      if (!isStock(i)) continue;
+      if (!isHkStock(i)) continue;
       const a = ANCHOR[i.s];
       const q = state.quotes[i.s];
       if (!a || !q) continue;
@@ -228,7 +266,7 @@
   function seedReports(clock) {
     const out = {};
     for (const i of UNIVERSE) {
-      if (!isStock(i)) continue;
+      if (!isHkStock(i)) continue;
       const b = FIN_BASE[i.s] || [i.start * 1.8, i.start * 0.22, 0.04];
       const prev = nextFin(i.s, clock, true);
       out[i.s] = { period: prev.period, rev: b[0], profit: b[1], yoy: b[2], sur: 0, at: prev.at };
@@ -276,7 +314,7 @@
     const out = {};
     const today = dayKey(clock);
     for (const i of UNIVERSE) {
-      if (!isStock(i)) continue;
+      if (!isHkStock(i)) continue;
       const rep = reports[i.s];
       if (!rep) continue;
       const last = (state && state.quotes && state.quotes[i.s] && state.quotes[i.s].last) || i.start;
@@ -363,10 +401,16 @@
     return (mins >= 9 * 60 && mins < 12 * 60) || (mins >= 13 * 60 && mins < 16 * 60 + 10);
   }
   function usesAuc(inst) {
-    return inst && inst.k !== "crypto";
+    return inst && inst.k !== "crypto" && isHk(inst);
   }
   function isSession(ms) {
     return sessionPhase(ms) === "continuous";
+  }
+  function hkFreeze() {
+    const inst = BY[state.sel];
+    if (!inst || !isHk(inst)) return false;
+    const ph = sessionPhase(state.clock);
+    return ph === "open-input" || ph === "open-cool";
   }
   function nextOpen(from) {
     const p = hkParts(from);
@@ -380,14 +424,118 @@
     }
     return ts;
   }
+  const WD = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  function zonedParts(ms, timeZone) {
+    const map = {};
+    for (const part of new Intl.DateTimeFormat("en-US", {
+      timeZone, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date(ms))) {
+      if (part.type !== "literal") map[part.type] = part.value;
+    }
+    let hour = +map.hour;
+    if (hour === 24) hour = 0;
+    return { year: +map.year, month: +map.month, day: +map.day, hour, minute: +map.minute, weekday: WD[map.weekday] ?? 1 };
+  }
+  function dayKeyZ(p) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return p.year + "-" + pad(p.month) + "-" + pad(p.day);
+  }
+  function jpPhase(t, nightIndex) {
+    const p = zonedParts(t, "Asia/Tokyo");
+    const mins = p.hour * 60 + p.minute;
+    const nightLate = p.weekday >= 1 && p.weekday <= 5 && mins >= 16 * 60 + 45;
+    const nightEarly = p.weekday >= 2 && p.weekday <= 6 && mins < 6 * 60;
+    if (nightIndex && (nightLate || nightEarly)) {
+      if (mins >= 16 * 60 + 45 && mins < 17 * 60) return "open-input";
+      if (mins >= 5 * 60 + 55 && mins < 6 * 60) return "close-input";
+      return "night";
+    }
+    if (p.weekday === 0 || p.weekday === 6) return "closed";
+    if (mins >= 8 * 60 && mins < 8 * 60 + 50) return "open-input";
+    if (mins >= 8 * 60 + 50 && mins < 9 * 60) return "open-cool";
+    if (mins >= 9 * 60 && mins < 11 * 60 + 30) return "continuous";
+    if (mins >= 11 * 60 + 30 && mins < 12 * 60 + 30) return "lunch";
+    if (mins >= 12 * 60 + 30 && mins < 15 * 60 + 25) return "continuous";
+    if (mins >= 15 * 60 + 25 && mins < 15 * 60 + 30) return "close-input";
+    return "closed";
+  }
+  function usPhase(t) {
+    const p = zonedParts(t, "America/New_York");
+    if (p.weekday === 0 || p.weekday === 6) return "closed";
+    const mins = p.hour * 60 + p.minute;
+    if (mins >= 4 * 60 && mins < 9 * 60) return "pre";
+    if (mins >= 9 * 60 && mins < 9 * 60 + 25) return "open-input";
+    if (mins >= 9 * 60 + 25 && mins < 9 * 60 + 30) return "open-cool";
+    if (mins >= 9 * 60 + 30 && mins < 15 * 60 + 50) return "continuous";
+    if (mins >= 15 * 60 + 50 && mins < 16 * 60) return "close-input";
+    if (mins >= 16 * 60 && mins < 20 * 60) return "night";
+    return "closed";
+  }
+  function symbolPhase(t, inst) {
+    const m = mktOf(inst);
+    if (m === "JP") return jpPhase(t, inst.s === "N225");
+    if (m === "US") return usPhase(t);
+    return sessionPhase(t);
+  }
+  function boardLabel(t, board) {
+    if (board === "HK") return sessionLabel(t);
+    if (board === "JP") {
+      const ph = jpPhase(t, false);
+      if (ph === "open-input") return "前場開市競價 · 08:00–08:50";
+      if (ph === "open-cool") return "前場競價冷靜 · 08:50–09:00";
+      if (ph === "continuous") {
+        const mins = zonedParts(t, "Asia/Tokyo").hour * 60 + zonedParts(t, "Asia/Tokyo").minute;
+        return mins < 12 * 60 ? "前場持續 09:00–11:30" : "後場持續 12:30–15:25";
+      }
+      if (ph === "lunch") return "午休 11:30–12:30";
+      if (ph === "close-input") return "收市競價 · 15:25–15:30";
+      const night = jpPhase(t, true);
+      if (night === "night" || night === "open-input" || night === "close-input") return "日經夜盤 17:00–06:00（現貨休市）";
+      return "東證休市";
+    }
+    const ph = usPhase(t);
+    if (ph === "pre") return "盤前 04:00–09:00 美東";
+    if (ph === "open-input") return "開市競價 · 09:00–09:25 美東";
+    if (ph === "open-cool") return "開市競價冷靜 · 09:25–09:30";
+    if (ph === "continuous") return "日盤 09:30–15:50 美東";
+    if (ph === "close-input") return "收市競價 · 15:50–16:00";
+    if (ph === "night") return "盤後 16:00–20:00 美東";
+    return "美股休市";
+  }
+  function symbolLabel(t, inst) {
+    if (mktOf(inst) !== "JP" || inst.s === "N225") return boardLabel(t, mktOf(inst));
+    const ph = symbolPhase(t, inst);
+    const night = jpPhase(t, true);
+    if (ph === "closed" && (night === "night" || night === "open-input" || night === "close-input")) return "現貨休市 · 日經夜盤進行中";
+    return boardLabel(t, "JP");
+  }
+  function hkActive(t) {
+    const p = hkParts(t);
+    if (p.weekday === 0 || p.weekday === 6) return false;
+    const mins = p.hour * 60 + p.minute;
+    return (mins >= 9 * 60 && mins < 12 * 60) || (mins >= 13 * 60 && mins < 16 * 60 + 10);
+  }
+  function foreignActive(t) {
+    const jp = jpPhase(t, false);
+    const night = jpPhase(t, true);
+    const us = usPhase(t);
+    return jp !== "closed" || night === "night" || night === "open-input" || night === "close-input" || us !== "closed";
+  }
+  function anyBoardActive(t) { return hkActive(t) || foreignActive(t); }
+  function nextBoardActive(from) {
+    let t = from;
+    for (let i = 0; i < 4000; i++) {
+      t += 60000;
+      if (anyBoardActive(t)) return t;
+    }
+    return t;
+  }
   function advanceClock(ms, minutes) {
     let cur = ms, left = minutes;
     while (left > 0) {
       cur += 60000;
-      const p = hkParts(cur);
-      const mins = p.hour * 60 + p.minute;
-      if (mins === 12 * 60) cur = hkDate(p.year, p.month, p.day, 13, 0);
-      else if (mins >= 16 * 60 + 10 || p.weekday === 0 || p.weekday === 6) cur = nextOpen(cur);
+      if (!anyBoardActive(cur)) cur = nextBoardActive(cur);
       left -= 1;
     }
     return cur;
@@ -479,7 +627,7 @@
   function rollExtreme(clock) {
     const day = dayKey(clock);
     if (Math.random() >= 0.34) return { day, event: null };
-    const pool = UNIVERSE.filter((i) => i.s !== "HSI" && i.s !== "2800");
+    const pool = UNIVERSE.filter((i) => isHk(i) && i.s !== "HSI" && i.s !== "2800");
     const weights = pool.map((i) => Math.pow(Math.max(0.02, 1 - (FUND[i.s] ?? 0.5)), 3));
     let r = Math.random() * weights.reduce((a, b) => a + b, 0);
     let inst = pool[0];
@@ -580,9 +728,15 @@
   }
   function fmtP(n, inst) {
     const it = inst || BY[state.sel];
-    if (it && it.k === "crypto") {
+    if (it && it.k === "index") return Math.round(n).toLocaleString("en-HK");
+    if (it && (it.k === "crypto" || it.m === "US")) {
       const a = Math.abs(n), s = n < 0 ? "−" : "";
-      return s + "US$" + a.toLocaleString("en-US", { maximumFractionDigits: 0 });
+      const digits = a >= 1000 ? 0 : 2;
+      return s + "US$" + a.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    }
+    if (it && it.m === "JP") {
+      const a = Math.abs(n), s = n < 0 ? "−" : "";
+      return s + "¥" + a.toLocaleString("ja-JP", { maximumFractionDigits: a >= 1000 ? 0 : 1 });
     }
     if (n >= 1000) return n.toFixed(1);
     if (n >= 10) return n.toFixed(2);
@@ -613,15 +767,20 @@
     return { eq, pnl, text: "今日 " + (pnl > 0 ? "+" : "") + fmtH(pnl) + " · " + fmtPct(pct) };
   }
   function fmtTime(ms) {
-    return new Intl.DateTimeFormat("zh-HK", {
-      timeZone: "Asia/Hong_Kong",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date(ms));
+    const board = state.board || "HK";
+    const timeZone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
+    const map = {};
+    for (const part of new Intl.DateTimeFormat("en-US", {
+      timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date(ms))) {
+      if (part.type !== "literal") map[part.type] = part.value;
+    }
+    const days = ["日", "一", "二", "三", "四", "五", "六"];
+    const weekday = WD[map.weekday] ?? 1;
+    let hour = +map.hour;
+    if (hour === 24) hour = 0;
+    const pad = (n) => String(n).padStart(2, "0");
+    return "週" + days[weekday] + " " + pad(hour) + ":" + pad(+map.minute);
   }
   function esc(s) {
     return String(s)
@@ -788,6 +947,8 @@
       extDay: "",
       ind: { boll: false, rsi: false },
       hand: null,
+      board: "HK",
+      fx: null,
     };
   }
 
@@ -870,7 +1031,7 @@
     if (!(p.weekday >= 1 && p.weekday <= 5 && mins < 9 * 60 + 30)) return;
     const first = hkDate(p.year, p.month, p.day, 9, 30);
     for (const i of UNIVERSE) {
-      if (!book[i.s]) continue;
+      if (!book[i.s] || !isHk(i)) continue;
       for (const tf of ["5m", "15m", "1d"]) {
         const arr = book[i.s][tf];
         if (!arr) continue;
@@ -881,6 +1042,7 @@
   function adoptForming(book, clock) {
     if (sessionPhase(clock) !== "continuous") return;
     for (const i of UNIVERSE) {
+      if (!isHk(i)) continue;
       for (const tf of ["5m", "15m", "1d"]) {
         const arr = book[i.s] && book[i.s][tf];
         const c = arr && arr.at(-1);
@@ -935,6 +1097,8 @@
             rsi: !!(s.ind && s.ind.rsi),
           },
           hand: s.hand && Array.isArray(s.hand.cards) ? s.hand : null,
+          board: s.board === "JP" || s.board === "US" ? s.board : "HK",
+          fx: s.fx && typeof s.fx === "object" ? s.fx : null,
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -964,7 +1128,6 @@
   {
     const ph0 = sessionPhase(state.clock);
     const dk0 = dayKey(state.clock);
-    if ((ph0 === "open-input" || ph0 === "open-cool") && (!state.hand || state.hand.day !== dk0)) state.hand = dealHand(dk0);
     if ((ph0 === "open-input" || ph0 === "open-cool" || ph0 === "close-input" || ph0 === "close-random") && state.halt && !state.halt.lifted) {
       state.news = haltAuctionLine(ph0.indexOf("close") === 0 ? "close" : "open");
     }
@@ -1006,6 +1169,8 @@
       dayKey: state.dayKey,
       ind: state.ind,
       hand: state.hand,
+      board: state.board || "HK",
+      fx: state.fx || null,
     };
   }
   let persistTimer = null;
@@ -1363,9 +1528,8 @@
     const ext = card.sign * card.mag;
     const out = [{ s: "HSI", gap: ext }];
     for (const i of UNIVERSE) {
-      if (!isStock(i)) continue;
-      const b = Math.min(1.6, Math.max(0.3, i.beta));
-      out.push({ s: i.s, gap: ext * (0.72 + 0.28 * b) });
+      if (!isHkStock(i)) continue;
+      out.push({ s: i.s, gap: ext * (0.72 + 0.28 * Math.min(1.6, Math.max(0.3, i.beta))) });
     }
     return out;
   }
@@ -1418,6 +1582,7 @@
   }
   function rollQuotesDay() {
     for (const i of UNIVERSE) {
+      if (!isHk(i)) continue;
       const q = state.quotes[i.s];
       q.prev = q.last;
       q.o = q.last;
@@ -1447,7 +1612,7 @@
       state.halt.lifted = true;
     }
     for (const i of UNIVERSE) {
-      if (!isStock(i)) continue;
+      if (!isHkStock(i)) continue;
       const due = nextFin(i.s, state.clock, false);
       if (due.key !== dk) continue;
       const key = i.s + ":" + dk;
@@ -1504,7 +1669,7 @@
       }
     }
     if (!state.halt && Math.random() < 0.02) {
-      const pool = UNIVERSE.filter(isStock);
+      const pool = UNIVERSE.filter(isHkStock);
       const inst = pool[Math.floor(Math.random() * pool.length)];
       const afternoon = Math.random() < 0.42;
       const untilAt = afternoon ? state.clock : addTradingDays(state.clock, 1 + Math.floor(Math.random() * 3));
@@ -1545,6 +1710,8 @@
   function fillPendingAuc() {
     const pend = state.pending;
     if (!pend) return;
+    const inst0 = BY[pend.s];
+    if (inst0 && !isHk(inst0)) return;
     if (haltedNow(pend.s)) return;
     const inst = BY[pend.s], q = state.quotes[pend.s];
     if (!inst || !q) { state.pending = null; return; }
@@ -1581,11 +1748,190 @@
     state.pending = null;
   }
 
+  function emptyFx() { return { jpDay: "", usDay: "", jpNight: "", tgt: {} }; }
+  function writeFx(inst, raw, iepOnly) {
+    const q = state.quotes[inst.s];
+    if (!q) return;
+    const px = inst.k === "index" ? Math.round(raw) : rnd(Math.max(tickSize(raw, inst), raw), inst);
+    if (iepOnly) { q.iep = px; q.bid = px; q.ask = px; return; }
+    const t = inst.k === "index" ? 1 : tickSize(px, inst);
+    q.last = px;
+    q.bid = inst.k === "index" ? px - 1 : rnd(Math.max(t, px - t), inst);
+    q.ask = inst.k === "index" ? px + 1 : rnd(px + t, inst);
+    q.o = q.o || px;
+    q.h = Math.max(q.h || px, px);
+    q.l = Math.min(q.l || px, px);
+    q.iep = px;
+  }
+  function pushFx(sym, gap) {
+    const q = state.quotes[sym];
+    const book = state.candles[sym];
+    const inst = BY[sym];
+    if (!q || !book || !inst) return;
+    const unit = inst.k === "index" ? 900 : inst.lot || 1;
+    const tickV = Math.max(1, Math.round(unit * (4 + Math.random() * 12)));
+    const clock = state.clock;
+    const ts = { "5m": Math.floor(clock / 300000) * 300000, "15m": Math.floor(clock / 900000) * 900000, "1d": Math.floor(clock / 86400000) * 86400000 };
+    for (const tf of ["5m", "15m", "1d"]) {
+      const arr = book[tf];
+      if (!arr) continue;
+      const t = ts[tf];
+      const c = arr.at(-1);
+      const last = q.last;
+      const cap = tf === "5m" ? 220 : tf === "15m" ? 140 : 90;
+      if (c && c.t === t) {
+        if (gap) c.o = last;
+        c.c = last;
+        c.h = Math.max(c.h, last, c.o);
+        c.l = Math.min(c.l, last, c.o);
+        c.v = (c.v || 0) + tickV;
+      } else {
+        const o = gap ? last : (c ? c.c : last);
+        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: tickV });
+        if (arr.length > cap) arr.shift();
+      }
+    }
+  }
+  function rollFxOpen(symbols) {
+    if (!state.fx) state.fx = emptyFx();
+    for (const s of symbols) {
+      const inst = BY[s], q = state.quotes[s];
+      if (!inst || !q) continue;
+      const gap = Math.max(-0.025, Math.min(0.025, gauss() * inst.vol * 1.15));
+      state.fx.tgt[s] = inst.k === "index" ? Math.round(q.last * (1 + gap)) : rnd(q.last * (1 + gap), inst);
+      q.prev = q.last;
+      q.iep = q.last;
+      q.bid = q.last;
+      q.ask = q.last;
+      q.o = q.last;
+      q.h = q.last;
+      q.l = q.last;
+    }
+  }
+  function walkFx(symbols) {
+    const fx = state.fx || emptyFx();
+    for (const s of symbols) {
+      const inst = BY[s], q = state.quotes[s], tgt = fx.tgt[s];
+      if (!inst || !q || !(tgt > 0)) continue;
+      const cur = q.iep > 0 ? q.iep : q.last;
+      writeFx(inst, cur + (tgt - cur) * 0.18, true);
+    }
+  }
+  function printFx(symbols, gap) {
+    for (const s of symbols) {
+      const inst = BY[s], q = state.quotes[s];
+      if (!inst || !q) continue;
+      writeFx(inst, q.iep > 0 ? q.iep : q.last, false);
+      if (state.candles && state.candles[s]) pushFx(s, gap);
+    }
+  }
+  function liveFx(symbols, index, scale) {
+    const ix = BY[index], iq = state.quotes[index];
+    if (ix && iq) writeFx(ix, iq.last * (1 + gauss() * ix.vol * 0.16 * scale), false);
+    const idxRet = iq && state.quotes[index] ? state.quotes[index].last / iq.last - 1 : 0;
+    for (const s of symbols) {
+      if (s === index) continue;
+      const inst = BY[s], q = state.quotes[s];
+      if (!inst || !q || inst.k === "index") continue;
+      writeFx(inst, q.last * (1 + idxRet * inst.beta * 0.85 + gauss() * inst.vol * 0.18 * scale), false);
+    }
+    for (const s of symbols) if (state.candles && state.candles[s]) pushFx(s, false);
+  }
+  function fillForeignPending() {
+    const pend = state.pending;
+    if (!pend) return;
+    const inst = BY[pend.s];
+    if (!inst || isHk(inst)) return;
+    const ph = symbolPhase(state.clock, inst);
+    if (ph !== "continuous" && ph !== "pre" && ph !== "night") return;
+    fillPendingAucForce();
+  }
+  function fillPendingAucForce() {
+    const pend = state.pending;
+    if (!pend) return;
+    if (haltedNow(pend.s)) return;
+    const inst = BY[pend.s], q = state.quotes[pend.s];
+    if (!inst || !q) { state.pending = null; return; }
+    const price = q.iep > 0 ? q.iep : q.last;
+    const qty = pend.qty;
+    const side = pend.side;
+    const signed = side === "buy" ? qty : -qty;
+    const lev = pend.lev;
+    const exist = state.pos.find((p) => p.s === pend.s);
+    if (exist && Math.sign(exist.qty) !== Math.sign(signed)) {
+      const cq = Math.min(Math.abs(exist.qty), qty);
+      const pnl = (price - exist.avg) * (exist.qty > 0 ? cq : -cq) * inst.pv;
+      const margin = (cq * exist.avg * inst.pv) / exist.lev;
+      state.cash += margin + pnl;
+      exist.qty += exist.qty > 0 ? -cq : cq;
+      if (Math.abs(exist.qty) < 1e-9) state.pos = state.pos.filter((p) => p !== exist);
+      state.fills.unshift({ side, s: pend.s, qty: cq, price, t: state.clock });
+    } else if (exist && exist.lev === lev) {
+      const nq = exist.qty + signed;
+      exist.avg = (exist.avg * Math.abs(exist.qty) + price * qty) / Math.abs(nq);
+      exist.qty = nq;
+    } else if (!exist) {
+      const cost = (qty * price * inst.pv) / lev;
+      if (cost > state.cash + 1e-9) {
+        toast("競價對盤失敗，現金不足");
+        state.pending = null;
+        return;
+      }
+      state.cash -= cost;
+      state.pos.push({ s: pend.s, qty: signed, avg: price, lev });
+      state.fills.unshift({ side, s: pend.s, qty, price, t: state.clock });
+    }
+    toast("競價對盤成交 " + inst.n + " " + (side === "buy" ? "買入 " : "賣出 ") + fmtQ(qty) + " @ " + fmtP(price, inst));
+    state.pending = null;
+  }
+  function stepForeign() {
+    if (!state.fx) state.fx = emptyFx();
+    const fx = state.fx;
+    const jp = zonedParts(state.clock, "Asia/Tokyo");
+    const us = zonedParts(state.clock, "America/New_York");
+    const jpKey = dayKeyZ(jp);
+    const usKey = dayKeyZ(us);
+    const jpCashPh = jpPhase(state.clock, false);
+    const jpNightPh = jpPhase(state.clock, true);
+    const usPh = usPhase(state.clock);
+    const cash = UNIVERSE.filter((i) => i.m === "JP").map((i) => i.s);
+    const usSyms = UNIVERSE.filter((i) => i.m === "US").map((i) => i.s);
+    if ((jpCashPh === "open-input" || jpCashPh === "open-cool") && fx.jpDay !== jpKey) {
+      rollFxOpen(cash);
+      fx.jpDay = jpKey;
+    } else if (jpCashPh === "open-input" || jpCashPh === "open-cool" || jpCashPh === "close-input") {
+      walkFx(cash);
+    }
+    if (jp.hour === 9 && jp.minute === 0 && fx.jpDay === jpKey) printFx(cash, true);
+    else if (jpCashPh === "continuous") liveFx(cash, "N225", 1);
+    if (jp.hour === 15 && jp.minute === 30) printFx(cash, false);
+    const nightKey = jp.hour < 12 ? dayKeyZ(zonedParts(state.clock - 12 * 3600000, "Asia/Tokyo")) : jpKey;
+    if (jpNightPh === "open-input" && fx.jpNight !== nightKey) {
+      rollFxOpen(["N225"]);
+      fx.jpNight = nightKey;
+    } else if (jpNightPh === "open-input" || jpNightPh === "close-input") walkFx(["N225"]);
+    if (jp.hour === 17 && jp.minute === 0) printFx(["N225"], true);
+    else if (jpNightPh === "night") liveFx(["N225"], "N225", 0.72);
+    if (jp.hour === 6 && jp.minute === 0 && jpNightPh === "closed") printFx(["N225"], false);
+    if ((usPh === "open-input" || usPh === "open-cool") && fx.usDay !== usKey) {
+      rollFxOpen(usSyms);
+      fx.usDay = usKey;
+    } else if (usPh === "open-input" || usPh === "open-cool" || usPh === "close-input") walkFx(usSyms);
+    if (us.hour === 9 && us.minute === 30 && fx.usDay === usKey) printFx(usSyms, true);
+    else if (usPh === "pre") liveFx(usSyms, "SPX", 0.55);
+    else if (usPh === "continuous") {
+      liveFx(usSyms, "SPX", 1);
+      liveFx(["DJI", "JPM", "XOM", "LLY"], "DJI", 0.35);
+      liveFx(["IXIC", "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "META", "AVGO", "TSLA"], "IXIC", 0.35);
+    } else if (usPh === "night") liveFx(usSyms, "SPX", 0.45);
+    if (us.hour === 16 && us.minute === 0) printFx(usSyms, false);
+    fillForeignPending();
+  }
   function step() {
     if (!state.speed || state.won || state.busted) return;
-    const prevPhase = sessionPhase(state.clock);
+    const prevPhase = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
     state.clock = advanceClock(state.clock, 1);
-    if (!isClockOn(state.clock)) state.clock = nextOpen(state.clock);
+    stepForeign();
     const hp = hkParts(state.clock);
     const dk = dayKey(state.clock);
     dropPremature(state.candles, state.clock);
@@ -1612,10 +1958,6 @@
       else state.auction.pm = true;
       aucNews(kind);
       fillPendingAuc();
-      if (closeMatch) {
-        state.clock = nextOpen(state.clock);
-        openDay();
-      }
       persist();
       render();
       return;
@@ -1630,7 +1972,7 @@
         stepIep();
         if (ph !== "open-input") {
           for (const i of UNIVERSE) {
-            if (haltedNow(i.s)) continue;
+            if (!isHk(i) || haltedNow(i.s)) continue;
             const q = state.quotes[i.s];
             const px = usesAuc(i) ? (q.iep > 0 ? q.iep : q.last) : q.last;
             pushC(i.s, px, false);
@@ -1638,7 +1980,8 @@
         }
       }
       persist();
-      if (sessionPhase(state.clock) !== prevPhase) render();
+      const phaseNow = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
+      if (phaseNow !== prevPhase) render();
       else paintLive();
       return;
     }
@@ -1700,6 +2043,7 @@
       pushC("BTC", last, gapOpen);
     }
     for (const i of UNIVERSE) {
+      if (!isHk(i)) continue;
       if (i.s === "HSI" || i.s === "2800" || i.k === "crypto") continue;
       if (haltedNow(i.s)) continue;
       const q = state.quotes[i.s];
@@ -1729,7 +2073,7 @@
       q.l = Math.min(q.l, last);
       pushC(i.s, last, gapOpen || state.resumePrint === i.s);
     }
-    const names = UNIVERSE.filter((i) => i.s !== "HSI" && i.s !== "2800" && i.k !== "crypto");
+    const names = UNIVERSE.filter((i) => isHk(i) && i.s !== "HSI" && i.s !== "2800" && i.k !== "crypto");
     const avg = names.reduce((s, i) => s + state.quotes[i.s].last / i.start, 0) / names.length;
     const H = BY.HSI;
     const hl = rnd(H.start * avg * (1 + gauss() * 0.002), H);
@@ -1762,10 +2106,21 @@
   function place(side) {
     if (state.won || state.busted) return;
     const inst = BY[state.sel], q = state.quotes[state.sel];
-    if (haltedNow(state.sel)) return toast(inst.n + " 停牌，暫停買賣");
     const qty = parseQty(state.qty, inst);
     if (!qty) return toast("請輸入數量");
     const lev = Math.min(state.lev, inst.lev);
+    if (!isHk(inst)) {
+      const ph = symbolPhase(state.clock, inst);
+      if (ph === "closed" || ph === "lunch") return toast(ph === "lunch" ? "午休，暫停落盤" : "該市場休市，未能落盤");
+      if (ph === "open-cool") return toast("競價冷靜期，暫停輸入買賣盤");
+      if (ph === "open-input" || ph === "close-input") {
+        state.pending = { s: state.sel, side, qty, lev };
+        toast("已掛競價盤，待對盤成交：" + inst.n);
+        persist();
+        render();
+        return;
+      }
+    } else if (haltedNow(state.sel)) return toast(inst.n + " 停牌，暫停買賣");
     if (usesAuc(inst) && !isSession(state.clock)) {
       if (!canEnterAuc(state.clock)) {
         const ph = sessionPhase(state.clock);
@@ -1891,7 +2246,7 @@
     const raw = cs.slice(-64);
     if (!raw.length) return;
     const lastPx = state.quotes[state.sel].last;
-    const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
+    const freeze = hkFreeze();
     const data = raw.map((c, i, arr) =>
       !freeze && i === arr.length - 1 ? { ...c, c: lastPx, h: Math.max(c.h, lastPx), l: Math.min(c.l, lastPx) } : c
     );
@@ -2074,16 +2429,24 @@
       return;
     }
     clockEl.textContent = fmtTime(state.clock);
+    const board = state.board || "HK";
     const phaseEl = document.getElementById("sim-phase");
-    if (phaseEl) phaseEl.textContent = sessionLabel(state.clock);
-    const hsi = state.quotes.HSI;
-    const hsich = (hsi.last - hsi.prev) / hsi.prev;
+    if (phaseEl) phaseEl.textContent = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
+    const flag = board === "JP" ? "N225" : board === "US" ? "SPX" : "HSI";
+    const fq = state.quotes[flag];
+    const fch = fq && fq.prev ? (fq.last - fq.prev) / fq.prev : 0;
     const hsiLast = document.getElementById("hsi-last");
-    if (hsiLast) hsiLast.textContent = hsi.last.toLocaleString("en-HK");
+    if (hsiLast && fq) hsiLast.textContent = Math.round(fq.last).toLocaleString("en-HK");
     const hsiChg = document.getElementById("hsi-chg");
-    if (hsiChg) {
-      hsiChg.textContent = fmtPct(hsich);
-      hsiChg.className = hsich >= 0 ? "up" : "down";
+    if (hsiChg && fq) {
+      hsiChg.textContent = fmtPct(fch);
+      hsiChg.className = fch >= 0 ? "up" : "down";
+    }
+    const idxSub = document.getElementById("idx-sub");
+    if (idxSub) {
+      idxSub.textContent = board === "US" && state.quotes.DJI && state.quotes.IXIC
+        ? "道指 " + Math.round(state.quotes.DJI.last).toLocaleString("en-HK") + " · 納指 " + Math.round(state.quotes.IXIC.last).toLocaleString("en-HK")
+        : "";
     }
     const cashEl = document.getElementById("cash-v");
     if (cashEl) cashEl.textContent = fmtH(state.cash);
@@ -2233,7 +2596,7 @@
     const bar = (state.candles[state.sel] && state.candles[state.sel][state.tf] || []).at(-1);
     const q = state.quotes[state.sel];
     if (!bar || !q) return;
-    const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
+    const freeze = hkFreeze();
     const o = bar.o, h = freeze ? bar.h : Math.max(bar.h, q.last), l = freeze ? bar.l : Math.min(bar.l, q.last), c = freeze ? bar.c : q.last;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtP(v); };
     set("ohlc-o", o); set("ohlc-h", h); set("ohlc-l", l); set("ohlc-c", c);
@@ -2282,25 +2645,46 @@
   }
 
   function render() {
-    const inst = BY[state.sel], q = state.quotes[state.sel], live = dayPnlLabel(), hsi = state.quotes.HSI;
+    const board = state.board || "HK";
+    const inst = BY[state.sel], q = state.quotes[state.sel], live = dayPnlLabel();
+    const flag = board === "JP" ? "N225" : board === "US" ? "SPX" : "HSI";
+    const fq = state.quotes[flag];
     const eq = live.eq, pnl = live.pnl;
-    const hsich = (hsi.last - hsi.prev) / hsi.prev;
+    const fch = fq && fq.prev ? (fq.last - fq.prev) / fq.prev : 0;
     const chg = (q.last - q.prev) / q.prev;
-    const auc = usesAuc(inst) && isAuction(state.clock);
-    const halted = haltedNow(state.sel);
-    const canAuc = (!auc || canEnterAuc(state.clock)) && !halted;
+    const phSel = isHk(inst) ? sessionPhase(state.clock) : symbolPhase(state.clock, inst);
+    const auc = isHk(inst) ? usesAuc(inst) && isAuction(state.clock) : (phSel === "open-input" || phSel === "open-cool" || phSel === "close-input");
+    const halted = isHk(inst) && haltedNow(state.sel);
+    const canAuc = isHk(inst) ? (!auc || canEnterAuc(state.clock)) && !halted : (phSel === "continuous" || phSel === "pre" || phSel === "night" || phSel === "open-input" || phSel === "close-input");
     const iep = q.iep > 0 ? q.iep : q.last;
-    const series = state.candles[state.sel][state.tf];
+    const series = (state.candles[state.sel] && state.candles[state.sel][state.tf]) || [];
     const hs = hints(series);
     const progress = Math.min(100, (eq / GOAL) * 100);
     const n = state.filter.trim();
+    const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
+    const phaseText = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
+    const title = board === "JP" ? "日股模擬盤" : board === "US" ? "美股模擬盤" : "港股模擬盤";
+    const flagLabel = board === "JP" ? "日經指數" : board === "US" ? "標普500" : "恒生指數";
+    const idxExtra = board === "US" ? "道指 " + Math.round(state.quotes.DJI.last).toLocaleString("en-HK") + " · 納指 " + Math.round(state.quotes.IXIC.last).toLocaleString("en-HK") : "";
+    const rules = board === "JP"
+      ? "東證現貨（日本時間）：前場競價 08:00–09:00，前場 09:00–11:30，午休 11:30–12:30，後場 12:30–15:25，收市競價 15:25–15:30。日經指數期指夜盤 17:00–翌晨 06:00（16:45 起接受競價）。現貨個股夜盤不交易。綠升紅跌。帳戶以港元結算。"
+      : board === "US"
+        ? "紐約／納斯達克（美東，含夏令）：盤前 04:00–09:00，開市競價 09:00–09:30，日盤 09:30–15:50，收市競價 15:50–16:00，盤後 16:00–20:00。道瓊斯、標普500、納斯達克與個股同一時段。綠升紅跌。帳戶以港元結算。"
+        : "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。離開再開，當根開／高／低／收同整段陰陽燭原封保留。";
+    const quoteTag = inst.k === "crypto" ? "USD · 約 7.8 兌港元" : inst.m === "JP" ? "日圓 · 約 0.051 兌港元 · 可碎股" : inst.m === "US" ? (inst.k === "index" ? "指數 · 每點 HK$1" : "美元 · 約 7.8 兌港元") : (inst.k === "index" ? "指數 · 每點 HK$1" : "每手 " + inst.lot);
+    const phaseLine = isHk(inst) ? sessionLabel(state.clock) : symbolLabel(state.clock, inst);
     const $ = document.getElementById("app");
     $.innerHTML = `
       <header class="top">
         <div class="top-row">
           <div>
-            <p class="kicker">Apex Jade · Paper Hang Seng</p>
-            <h1>港股模擬盤</h1>
+            <div class="bar boards">
+              <button type="button" data-board="HK" class="${board === "HK" ? "on" : ""}">港股</button>
+              <button type="button" data-board="JP" class="${board === "JP" ? "on" : ""}">日股</button>
+              <button type="button" data-board="US" class="${board === "US" ? "on" : ""}">美股</button>
+            </div>
+            <p class="kicker">Apex Jade · Paper Markets</p>
+            <h1>${title}</h1>
           </div>
           <div class="controls">
             <div class="bar">${[0, 1, 4, 12].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
@@ -2309,20 +2693,20 @@
           </div>
         </div>
         <div class="stats">
-          <div class="stat"><label>模擬時間（香港）</label><div class="v mono" id="sim-clock">${esc(fmtTime(state.clock))}</div><small id="sim-phase">${esc(sessionLabel(state.clock))}</small></div>
-          <div class="stat"><label>恒生指數</label><div class="v mono" id="hsi-last">${hsi.last.toLocaleString("en-HK")}</div><small id="hsi-chg" class="${hsich >= 0 ? "up" : "down"}">${fmtPct(hsich)}</small></div>
+          <div class="stat"><label>模擬時間（${zoneName}）</label><div class="v mono" id="sim-clock">${esc(fmtTime(state.clock))}</div><small id="sim-phase">${esc(phaseText)}</small></div>
+          <div class="stat"><label>${flagLabel}</label><div class="v mono" id="hsi-last">${fq ? Math.round(fq.last).toLocaleString("en-HK") : "—"}</div><small id="hsi-chg" class="${fch >= 0 ? "up" : "down"}">${fq ? fmtPct(fch) : ""}</small><small class="muted" id="idx-sub">${esc(idxExtra)}</small></div>
           <div class="stat"><label>現金</label><div class="v mono" id="cash-v">${fmtH(state.cash)}</div></div>
           <div class="stat"><label>總資產</label><div class="v mono" id="eq-v">${fmtH(eq)}</div><small id="eq-pnl" class="${pnl >= 0 ? "up" : "down"}">${live.text}</small></div>
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
         </div>
       </header>
       <div id="news-bar" class="news ${state.news.includes("暴升") ? "surge" : state.news.includes("暴跌") ? "crash" : /停牌|暫停買賣|復牌/.test(state.news) ? "halt" : ""}"><b id="news-k">${state.news.includes("暴升") ? "暴升" : state.news.includes("暴跌") ? "暴跌" : /停牌|暫停買賣|復牌/.test(state.news) ? "停牌" : "NEWS"}</b><span id="news-t">${esc(state.news)}</span></div>
-      ${(sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool") && state.hand && state.hand.day === dayKey(state.clock) && state.hand.cards.length ? `<div class="cards"><p class="hint">開市競價 · 手牌 3 張 · 點擊打出，個股卡作用於目前選擇</p>${state.hand.cards.map((c) => `<button type="button" class="card" data-card="${c.id}"><b>${esc(c.title)}</b><span>${esc(c.blurb)}</span></button>`).join("")}</div>` : ""}
-        <p class="rule">交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。離開再開，當根開／高／低／收同整段陰陽燭原封保留。</p>
+      ${(board === "HK" && (sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool") && state.hand && state.hand.day === dayKey(state.clock) && state.hand.cards.length) ? `<div class="cards"><p class="hint">開市競價 · 手牌 3 張 · 點擊打出，個股卡作用於目前選擇</p>${state.hand.cards.map((c) => `<button type="button" class="card" data-card="${c.id}"><b>${esc(c.title)}</b><span>${esc(c.blurb)}</span></button>`).join("")}</div>` : ""}
+        <p class="rule">${rules}</p>
       <main class="desk">
         <section class="col">
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0992、BTC" autocomplete="off" />
-          <div class="list" id="list">${LIST.map((i) => {
+          <div class="list" id="list">${listed(board).map((i) => {
             const qq = state.quotes[i.s];
             const c = (qq.last - qq.prev) / qq.prev;
             const hide = n && !i.s.includes(n) && !i.n.includes(n);
@@ -2330,13 +2714,13 @@
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
-          <div class="muted mono">${inst.s} · ${inst.k === "crypto" ? "USD · 約 7.8 兌港元" : "每手 " + inst.lot}</div>
+          <div class="muted mono">${inst.s} · ${quoteTag}</div>
           <h2>${inst.n}</h2>
           <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
           <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}${auc ? " · 對盤 " + fmtP(iep) : ""}${halted ? " · 停牌" : ""}</p>
           <div class="ohlc" id="ohlc" data-ohlc>${(() => {
             const bar = series.at(-1);
-            const freeze = sessionPhase(state.clock) === "open-input" || sessionPhase(state.clock) === "open-cool";
+            const freeze = hkFreeze();
             const o = bar ? bar.o : q.last, h = bar ? (freeze ? bar.h : Math.max(bar.h, q.last)) : q.last, l = bar ? (freeze ? bar.l : Math.min(bar.l, q.last)) : q.last, c = freeze && bar ? bar.c : q.last;
             return `<span>開 <b class="mono" id="ohlc-o">${fmtP(o)}</b></span><span>高 <b class="mono" id="ohlc-h">${fmtP(h)}</b></span><span>低 <b class="mono" id="ohlc-l">${fmtP(l)}</b></span><span>收 <b class="mono" id="ohlc-c">${fmtP(c)}</b></span>`;
           })()}</div>
@@ -2344,7 +2728,7 @@
           <div class="ind"><button type="button" class="boll ${state.ind && state.ind.boll ? "on" : ""}" data-ind="boll">BOLL 布林帶</button><button type="button" class="rsi ${state.ind && state.ind.rsi ? "on" : ""}" data-ind="rsi">RSI(14)</button></div>
           <canvas class="kline" id="kline"></canvas>
           <p class="muted" id="k-cap" style="margin-top:6px;font-size:11px"></p>
-          <div class="bidask" id="bidask">${auc ? `<div class="iep"><div class="cap">競價對盤價 IEP（掛盤待對盤，即時不成交）</div><div class="px mono" id="sel-iep">${fmtP(iep)}</div><div class="muted">${esc(sessionLabel(state.clock))}</div></div>` : `<div class="bid"><div class="cap">買入價 Bid（賣出成交）</div><div class="px mono" id="sel-bid">${fmtP(q.bid)}</div></div>
+          <div class="bidask" id="bidask">${auc ? `<div class="iep"><div class="cap">競價對盤價 IEP（掛盤待對盤，即時不成交）</div><div class="px mono" id="sel-iep">${fmtP(iep)}</div><div class="muted">${esc(phaseLine)}</div></div>` : `<div class="bid"><div class="cap">買入價 Bid（賣出成交）</div><div class="px mono" id="sel-bid">${fmtP(q.bid)}</div></div>
             <div class="ask"><div class="cap">賣出價 Ask（買入成交）</div><div class="px mono" id="sel-ask">${fmtP(q.ask)}</div></div>`}</div>
           <div class="ticket">
             ${state.pending ? `<p class="muted" id="pend-note">已掛競價盤：${state.pending.side === "buy" ? "買入" : "賣出"} ${state.pending.s}，待對盤成交。</p>` : ""}
@@ -2356,7 +2740,7 @@
               <button type="button" class="sell" id="sell" ${canAuc ? "" : "disabled"}>${halted ? "停牌" : auc ? "對盤賣出 @ " + fmtP(iep) : "賣出 @ " + fmtP(q.bid)}</button>
             </div>
           </div>
-          ${isStock(inst) ? (() => {
+          ${isHkStock(inst) ? (() => {
             const rep = state.reports && state.reports[inst.s];
             const nxt = nextFin(inst.s, state.clock, false);
             return `<div class="fin" data-fin-report><div class="muted">個股財報 · 每季公布一次</div>${halted && state.halt ? `<p class="halt">停牌至 ${state.halt.mins == null ? state.halt.until.slice(5).replace("-", "/") + " 開市" : state.halt.until.slice(5).replace("-", "/") + " 13:00"} · ${esc(state.halt.reason)}</p><p class="muted">${esc(state.halt.announce || "")}</p>` : ""}${rep ? `<div class="fin-grid"><div>最近 ${esc(rep.period)}<br>營業額 ${fmtYi(rep.rev)}<br>純利 ${fmtYi(rep.profit)}</div><div>按年 ${(rep.yoy>=0?"+":"−")+Math.abs(rep.yoy*100).toFixed(1)}%<br class="muted">${rep.sur>=0?"勝":"遜"}預期 ${Math.abs(rep.sur*100).toFixed(1)}%</div></div>` : ""}${(() => {
@@ -2423,6 +2807,20 @@
         persist();
         render();
         armTicker();
+      };
+    });
+    $.querySelectorAll("[data-board]").forEach((b) => {
+      b.onclick = () => {
+        const next = b.dataset.board;
+        state.board = next === "JP" || next === "US" ? next : "HK";
+        const cur = BY[state.sel];
+        if (!cur || mktOf(cur) !== state.board) {
+          state.sel = state.board === "JP" ? "N225" : state.board === "US" ? "SPX" : "HSI";
+          state.qty = "1";
+          state.lev = 1;
+        }
+        persist();
+        render();
       };
     });
     $.querySelectorAll("[data-tf]").forEach((b) => {
@@ -2493,6 +2891,11 @@
     }
   }
 
+  {
+    const ph0 = sessionPhase(state.clock);
+    const dk0 = dayKey(state.clock);
+    if ((ph0 === "open-input" || ph0 === "open-cool") && (!state.hand || state.hand.day !== dk0)) state.hand = dealHand(dk0);
+  }
   render();
   armTicker();
 })();

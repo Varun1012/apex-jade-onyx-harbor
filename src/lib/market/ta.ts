@@ -128,7 +128,7 @@ function lastPattern(cs: Candle[]): Hint | null {
   return null;
 }
 
-export function advise(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" = "HKD"): Advice {
+export function advise(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" | "JPY" = "HKD"): Advice {
   const cs = overlayLive(candles.slice(-80), live);
   const empty: Advice = {
     hints: [{ title: "數據不足", body: "陰陽燭仍在累積，稍後即可判斷。", bias: "neutral" }],
@@ -265,6 +265,6 @@ export function advise(candles: Candle[], live?: number | null, ccy: "HKD" | "US
   };
 }
 
-export function analyze(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" = "HKD"): Hint[] {
+export function analyze(candles: Candle[], live?: number | null, ccy: "HKD" | "USD" | "JPY" = "HKD"): Hint[] {
   return advise(candles, live, ccy).hints;
 }
