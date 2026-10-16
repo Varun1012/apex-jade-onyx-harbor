@@ -14,6 +14,8 @@ export type Instrument = {
   pointValue: number;
   maxLeverage: number;
   market?: Board;
+  /** 玩家創立或市場新股，不納入恒指、停牌與業績抽籤。 */
+  custom?: boolean;
 };
 
 export const STARTING_CASH = 10_000;
@@ -584,7 +586,27 @@ export const UNIVERSE: Instrument[] = [
   { symbol: "XOM", name: "埃克森美孚", kind: "stock", sector: "能源", start: 163, vol: 0.01, beta: 0.7, lot: 1, weight: 0, pointValue: 7.8, maxLeverage: 5, market: "US" },
 ];
 
-export const BY_SYMBOL = Object.fromEntries(UNIVERSE.map((i) => [i.symbol, i]));
+export const BY_SYMBOL: Record<string, Instrument> = Object.fromEntries(UNIVERSE.map((i) => [i.symbol, i]));
+
+const customBySymbol = new Map<string, Instrument>();
+
+export function registerCustom(inst: Instrument) {
+  if (UNIVERSE.some((i) => i.symbol === inst.symbol)) return;
+  const row: Instrument = { ...inst, custom: true, weight: 0 };
+  customBySymbol.set(inst.symbol, row);
+  BY_SYMBOL[inst.symbol] = row;
+}
+
+export function unregisterCustom(symbol: string) {
+  if (!customBySymbol.has(symbol)) return;
+  customBySymbol.delete(symbol);
+  delete BY_SYMBOL[symbol];
+}
+
+export function clearCustomRegistry() {
+  for (const s of customBySymbol.keys()) delete BY_SYMBOL[s];
+  customBySymbol.clear();
+}
 
 function pinRank(symbol: string, board: Board = "HK"): number {
   if (board === "JP") return symbol === "N225" ? 0 : 1;
@@ -600,8 +622,9 @@ function pinRank(symbol: string, board: Board = "HK"): number {
 }
 
 /** 指數置頂；港股／日股按代號，美股按代碼。 */
-export function listedInstruments(list: Instrument[] = UNIVERSE, board: Board = "HK"): Instrument[] {
-  const filtered = list.filter((i) => (i.market ?? "HK") === board);
+export function listedInstruments(list?: Instrument[], board: Board = "HK"): Instrument[] {
+  const src = list ?? [...UNIVERSE, ...customBySymbol.values()];
+  const filtered = src.filter((i) => (i.market ?? "HK") === board);
   return filtered.sort((a, b) => {
     const ra = pinRank(a.symbol, board);
     const rb = pinRank(b.symbol, board);

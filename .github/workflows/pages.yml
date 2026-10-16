@@ -71,6 +71,8 @@ jobs:
           grep -q "NVDA" app.js
           grep -q "7203" app.js
           grep -q "data-board" app.js
+          grep -q "開公司" app.js
+          grep -q "紅漲綠跌" app.js
           if grep -E -q "data-card|dealHand|出牌" app.js; then
             echo "card feature should stay removed"
             exit 1

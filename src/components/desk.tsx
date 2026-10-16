@@ -29,6 +29,18 @@ import {
 } from "@/lib/market/engine";
 import { formatDayKey, formatDps, formatMultiple, formatYi, haltResumeLabel, isHalted, nextResults, stockMultiples } from "@/lib/market/corporate";
 import { boardLabel, boardRules, symbolLabel, symbolPhase } from "@/lib/market/boards";
+import {
+  brief,
+  controls,
+  fairPrice,
+  ipoLotCost,
+  planFound,
+  roleLabel,
+  SECTORS,
+  stakeOf,
+  type ManageAct,
+  type Scale,
+} from "@/lib/market/company";
 import { cn } from "@/lib/utils";
 
 function px(n: number, symbol: string) {
@@ -68,9 +80,21 @@ function parseQty(raw: string, symbol: string): number {
   return Math.floor(n);
 }
 
-function Signed({ n, children }: { n: number; children: ReactNode }) {
-  const cls = n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted-foreground";
+function Signed({ n, redUp, children }: { n: number; redUp?: boolean; children: ReactNode }) {
+  const cls =
+    n > 0 ? (redUp ? "text-down" : "text-up") : n < 0 ? (redUp ? "text-up" : "text-down") : "text-muted-foreground";
   return <span className={cn("tabular-nums", cls)}>{children}</span>;
+}
+
+function redUpOf(symbol: string) {
+  return (BY_SYMBOL[symbol]?.market ?? "HK") === "JP";
+}
+
+function mktNote(symbol: string) {
+  const m = BY_SYMBOL[symbol]?.market ?? "HK";
+  if (m === "JP") return "日股紅漲綠跌。";
+  if (m === "US") return "美股綠升紅跌。";
+  return "港股綠升紅跌。";
 }
 
 function useTicker() {
@@ -95,11 +119,24 @@ function useTicker() {
 }
 
 export function Desk() {
+  const [ready, setReady] = useState(false);
   useTicker();
   const hydrateHistories = useDesk((s) => s.hydrateHistories);
   useEffect(() => {
     hydrateHistories();
+    setReady(true);
   }, [hydrateHistories]);
+
+  if (!ready) {
+    return (
+      <div className="min-h-dvh bg-background text-foreground">
+        <header className="border-b border-border px-4 py-3 sm:px-6">
+          <p className="text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">Paper Markets</p>
+          <h1 className="font-medium text-xl tracking-tight">港股模擬盤</h1>
+        </header>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
@@ -113,6 +150,7 @@ export function Desk() {
           <Ticket />
         </section>
         <section className="order-3 bg-background p-4 sm:p-5">
+          <CompanyPanel />
           <Holdings />
           <Fills />
         </section>
@@ -233,7 +271,7 @@ function HsiStat() {
     <Stat
       label={label}
       value={Math.round(q.last).toLocaleString("en-HK")}
-      sub={<Signed n={chg}>{formatPct(chg)}</Signed>}
+      sub={<Signed n={chg} redUp={board === "JP"}>{formatPct(chg)}</Signed>}
     />
   );
 }
@@ -478,12 +516,13 @@ function Watchlist() {
   const [q, setQ] = useState("");
   const listRef = useRef<HTMLUListElement>(null);
   const board = useDesk((s) => s.board ?? "HK");
+  const companyKey = useDesk((s) => (s.companies ?? []).map((c) => c.symbol).join("|"));
   const rows = useMemo(() => {
     const n = q.trim();
     return listedInstruments(undefined, board).filter(
       (i) => !n || i.symbol.includes(n) || i.name.includes(n) || i.sector.includes(n),
     );
-  }, [q, board]);
+  }, [q, board, companyKey]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -536,6 +575,7 @@ const WatchRow = memo(function WatchRow({
   if (!qt) return null;
   const chg = (qt.last - qt.prevClose) / qt.prevClose;
   const spark = hist ?? [qt.last];
+  const redUp = redUpOf(symbol);
   return (
     <li>
       <button
@@ -556,12 +596,12 @@ const WatchRow = memo(function WatchRow({
         </span>
         <span className="text-right">
           <span className="block font-mono text-sm tabular-nums">{px(qt.last, symbol)}</span>
-          <Signed n={chg}>
+          <Signed n={chg} redUp={redUp}>
             <span className="text-[11px]">{formatPct(chg)}</span>
           </Signed>
         </span>
         <span className="hidden justify-end sm:flex">
-          <Sparkline data={spark} up={chg >= 0} />
+          <Sparkline data={spark} up={redUp ? chg < 0 : chg >= 0} />
         </span>
       </button>
     </li>
@@ -629,7 +669,8 @@ function Ticket() {
       </div>
       <BidAsk symbol={selected} />
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        綠升紅跌。持續交易、盤前與盤後買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交。自選 BOLL 為布林帶(20,2)，RSI 為 14 期，30／70 為超賣超買。帳戶以港元結算。
+        {mktNote(selected)}
+        持續交易、盤前與盤後買入以賣出價成交、賣出以買入價成交。競價時段只可掛對盤，對盤前不成交。自選 BOLL 為布林帶(20,2)，RSI 為 14 期，30／70 為超賣超買。帳戶以港元結算。
       </p>
       <OrderTicket symbol={selected} />
       <FinReport symbol={selected} />
@@ -653,9 +694,14 @@ function TicketHead({ symbol }: { symbol: string }) {
     mkt === "HK"
       ? isAuction(clock) && usesHkAuction(inst)
       : foreignPh === "open-input" || foreignPh === "open-cool" || foreignPh === "close-input";
-  const badge =
-    halted
-      ? "停牌"
+  const badge = halted
+    ? "停牌"
+    : inst.custom
+      ? mkt === "JP"
+        ? "自訂日股 · 紅漲綠跌"
+        : mkt === "US"
+          ? "自訂美股 · 綠升紅跌"
+          : "自訂港股 · 綠升紅跌"
       : inst.kind === "index"
         ? "指數差價 · 每點 HK$1"
         : mkt === "JP"
@@ -678,7 +724,7 @@ function TicketHead({ symbol }: { symbol: string }) {
       </div>
       <div className="mt-3 flex items-end gap-4">
         <p className="font-mono text-3xl tabular-nums tracking-tight">{px(last, symbol)}</p>
-        <Signed n={chg}>
+        <Signed n={chg} redUp={mkt === "JP"}>
           <span className="text-sm">{formatPct(chg)}</span>
         </Signed>
       </div>
@@ -786,7 +832,7 @@ function Hints({ symbol, tf }: { symbol: string; tf: Tf }) {
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">持倉盈虧額</p>
           <p className="font-mono text-base tabular-nums" data-live-pnl-hint>
-            <Signed n={posPnl}>
+            <Signed n={posPnl} redUp={inst0?.market === "JP"}>
               {formatHkd(posPnl)}
               {posR != null ? ` · ${posR >= 0 ? "+" : "−"}${Math.abs(posR).toFixed(1)}R` : ""}
             </Signed>
@@ -818,6 +864,13 @@ function FinReport({ symbol }: { symbol: string }) {
   const div = useDesk((s) => s.dividends?.[symbol]);
   const last = useDesk((s) => s.quotes[symbol]?.last);
   if (!inst || inst.kind !== "stock") return null;
+  if (inst.custom) {
+    return (
+      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+        這是自訂或新上市公司。持股達三成可在「公司」調整人力、財務、營運、研發，並決定派息。日股報價紅漲綠跌。
+      </p>
+    );
+  }
   if (inst.market === "JP" || inst.market === "US") {
     return (
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
@@ -1104,6 +1157,235 @@ function OrderTicket({ symbol }: { symbol: string }) {
   );
 }
 
+const MANAGE: { act: ManageAct; label: string }[] = [
+  { act: "hr-freeze", label: "人事 · 凍結招聘" },
+  { act: "hr-raise", label: "人事 · 加薪搶人" },
+  { act: "fin-borrow", label: "財務 · 發債" },
+  { act: "fin-repay", label: "財務 · 還債" },
+  { act: "ops-cut", label: "營運 · 削減開支" },
+  { act: "ops-grow", label: "營運 · 搶市佔" },
+  { act: "rnd-stop", label: "研發 · 停研發" },
+  { act: "rnd-push", label: "研發 · 重押" },
+  { act: "div-none", label: "派息 · 暫不派" },
+  { act: "div-modest", label: "派息 · 穩健" },
+  { act: "div-rich", label: "派息 · 進取" },
+];
+
+function CompanyPanel() {
+  const companies = useDesk((s) => s.companies ?? []);
+  const ipos = useDesk((s) => s.ipos ?? []);
+  const cash = useDesk((s) => s.cash);
+  const positions = useDesk((s) => s.positions);
+  const selected = useDesk((s) => s.selected);
+  const quotes = useDesk((s) => s.quotes);
+  const seq = useDesk((s) => s.issuerSeq || 1);
+  const foundCompany = useDesk((s) => s.foundCompany);
+  const manageCompany = useDesk((s) => s.manageCompany);
+  const subscribeIpo = useDesk((s) => s.subscribeIpo);
+  const select = useDesk((s) => s.select);
+  const [open, setOpen] = useState(companies.every((c) => c.origin !== "player"));
+  const [name, setName] = useState("");
+  const [sector, setSector] = useState<(typeof SECTORS)[number]>("科技");
+  const [board, setB] = useState<Board>("HK");
+  const [scale, setScale] = useState<Scale>("micro");
+  const [stake, setStake] = useState(0.51);
+  const [err, setErr] = useState<string | null>(null);
+  const preview = planFound(
+    { name: name.trim().length >= 2 ? name : "草案", sector, board, scale, stake },
+    seq,
+    new Set(companies.map((c) => c.symbol)),
+  );
+  const focus =
+    companies.find((c) => c.symbol === selected && controls(c, positions)) ??
+    companies.find((c) => controls(c, positions)) ??
+    null;
+
+  const submit = () => {
+    const msg = foundCompany({ name, sector, board, scale, stake });
+    setErr(msg);
+    if (!msg) setName("");
+  };
+
+  return (
+    <div className="mb-5 rounded-lg border border-border bg-card p-3" data-company>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">公司</h2>
+        <button type="button" className="text-[11px] text-muted-foreground" onClick={() => setOpen((v) => !v)}>
+          {open ? "收起開公司" : "開公司集資上市"}
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        自己做發起人，餘額向市場配售。持股 30% 可管部門同派息，51% 是老闆。賣低過三成就失去管理權。
+      </p>
+      {ipos.map((ipo) => {
+        const cost = ipoLotCost(ipo);
+        const offerTxt = ipo.board === "JP" ? `¥${ipo.offer}` : ipo.board === "US" ? `US$${ipo.offer}` : `HK$${ipo.offer}`;
+        return (
+          <div key={ipo.id} className="mt-3 rounded-md border border-border bg-secondary/50 p-2.5">
+            <p className="text-sm">
+              新股 {ipo.name} <span className="font-mono text-muted-foreground">{ipo.symbol}</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {ipo.board === "JP" ? "日股" : ipo.board === "US" ? "美股" : "港股"} · {ipo.sector} · 招股價 {offerTxt} · 一手約{" "}
+              {formatHkd(cost)}
+              {ipo.subShares > 0 ? ` · 已認購 ${formatQty(ipo.subShares)} 股` : ""}
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-1">
+              {[1, 5, 10].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className="h-10 rounded-md border border-border text-xs"
+                  onClick={() => setErr(subscribeIpo(ipo.id, n))}
+                >
+                  認購 {n} 手
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {open ? (
+        <div className="mt-3 space-y-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="公司名稱"
+            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            maxLength={16}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={sector}
+              onChange={(e) => setSector(e.target.value as (typeof SECTORS)[number])}
+              className="h-10 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              {SECTORS.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+            <select
+              value={board}
+              onChange={(e) => setB(e.target.value as Board)}
+              className="h-10 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value="HK">港股</option>
+              <option value="JP">日股</option>
+              <option value="US">美股</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {(
+              [
+                ["micro", "微型"],
+                ["std", "標準"],
+                ["large", "大型"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setScale(id)}
+                className={cn(
+                  "h-10 rounded-md border text-xs",
+                  scale === id ? "border-primary bg-secondary" : "border-border text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => setStake(0.51)}
+              className={cn(
+                "h-10 rounded-md border text-xs",
+                stake >= 0.5 ? "border-primary bg-secondary" : "border-border text-muted-foreground",
+              )}
+            >
+              老闆 51%
+            </button>
+            <button
+              type="button"
+              onClick={() => setStake(0.3)}
+              className={cn(
+                "h-10 rounded-md border text-xs",
+                stake < 0.5 ? "border-primary bg-secondary" : "border-border text-muted-foreground",
+              )}
+            >
+              大股東 30%
+            </button>
+          </div>
+          {"cost" in preview && preview.cost != null ? (
+            <p className="text-[11px] text-muted-foreground">
+              市值約 {formatHkd(preview.capHkd, 0)} · 你要付 {formatHkd(preview.cost)} · 可得{" "}
+              {formatQty(preview.mine)} 股 · 可用 {formatHkd(cash)}
+            </p>
+          ) : null}
+          <button type="button" className="h-10 w-full rounded-md bg-primary text-sm text-primary-foreground" onClick={submit}>
+            集資上市
+          </button>
+        </div>
+      ) : null}
+      {companies.length > 0 ? (
+        <ul className="mt-3 space-y-1 text-[12px]">
+          {companies.map((c) => {
+            const stakeNow = stakeOf(c, positions);
+            return (
+              <li key={c.symbol}>
+                <button type="button" className="text-left" onClick={() => select(c.symbol)}>
+                  <span className="font-mono text-muted-foreground">{c.symbol}</span> {c.name} · {roleLabel(stakeNow)}{" "}
+                  {(stakeNow * 100).toFixed(0)}%
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {focus ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="text-sm">
+            {focus.name} <span className="font-mono text-muted-foreground">{focus.symbol}</span> ·{" "}
+            {roleLabel(stakeOf(focus, positions))}
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{brief(focus)}</p>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+            士氣 {Math.round(focus.morale)} · 產能 {Math.round(focus.capacity)} · 品牌 {Math.round(focus.brand)} · 研發{" "}
+            {Math.round(focus.pipeline)}
+          </p>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            庫存 {Math.round(focus.treasury)} · 負債 {Math.round(focus.debt)} · 盈利 {Math.round(focus.profit)} · 可派{" "}
+            {Math.round(Math.max(0, focus.retained))}
+          </p>
+          <p className="font-mono text-[11px]">
+            合理值 {px(fairPrice(focus), focus.symbol)}
+            {quotes[focus.symbol] ? ` · 現價 ${px(quotes[focus.symbol]!.last, focus.symbol)}` : ""}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-1">
+            {MANAGE.map((m) => (
+              <button
+                key={m.act}
+                type="button"
+                className="h-10 rounded-md border border-border px-1 text-[11px]"
+                onClick={() => {
+                  select(focus.symbol);
+                  setErr(manageCompany(focus.symbol, m.act));
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : companies.length > 0 ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">持股未達三成的公司只能在市場買賣，不能派息或改部門。</p>
+      ) : null}
+      {err ? <p className="mt-2 text-[12px] text-muted-foreground">{err}</p> : null}
+    </div>
+  );
+}
+
 function Holdings() {
   const positions = useDesk((s) => s.positions);
 
@@ -1203,10 +1485,10 @@ const HoldingRow = memo(function HoldingRow({
         <div>
           <p className="text-[11px] text-muted-foreground">盈虧額</p>
           <p className="font-mono text-lg tabular-nums tracking-tight" data-live-pnl={symbol}>
-            <Signed n={pnl}>{formatHkd(pnl)}</Signed>
+            <Signed n={pnl} redUp={redUpOf(symbol)}>{formatHkd(pnl)}</Signed>
           </p>
           <p className="text-[11px]">
-            <Signed n={pct}>{formatPct(pct)}</Signed>
+            <Signed n={pct} redUp={redUpOf(symbol)}>{formatPct(pct)}</Signed>
           </p>
         </div>
         <div className="text-right">

@@ -1,13 +1,21 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { BY_SYMBOL, BOYAA_SYMBOL, GOAL_EQUITY, STARTING_CASH, UNIVERSE, clearCustomRegistry, roundTick, tickSize, type Board } from "./market/universe";
 import {
-  GOAL_EQUITY,
-  STARTING_CASH,
-  UNIVERSE,
-  BY_SYMBOL,
-  BOYAA_SYMBOL,
-  type Board,
-} from "./market/universe";
+  advanceCompanies,
+  applyManage,
+  applySubscribe,
+  blankQuote,
+  buildFound,
+  normalizeCompany,
+  normalizeIpo,
+  syncCustomRegistry,
+  toInstrument,
+  type Company,
+  type FoundInput,
+  type IpoOffer,
+  type ManageAct,
+} from "./market/company";
 import { hkParts } from "./format";
 import {
   declareDividend,
@@ -129,6 +137,10 @@ type DeskState = {
   indicators: Indicators;
   board: Board;
   fx: FxState;
+  companies: Company[];
+  ipos: IpoOffer[];
+  issuerSeq: number;
+  ipoDay: string;
   hydrateHistories: () => void;
   select: (symbol: string) => void;
   setSpeed: (s: Speed) => void;
@@ -138,6 +150,9 @@ type DeskState = {
   tick: () => void;
   place: (side: Side, qty: number, leverage: number) => string | null;
   closeSymbol: (symbol: string) => void;
+  foundCompany: (input: FoundInput) => string | null;
+  manageCompany: (symbol: string, act: ManageAct) => string | null;
+  subscribeIpo: (id: string, lots: number) => string | null;
   reset: () => void;
   clearToast: () => void;
 };
@@ -221,6 +236,10 @@ function initial() {
     indicators: { boll: false, rsi: false },
     board: "HK" as Board,
     fx: emptyFx(),
+    companies: [] as Company[],
+    ipos: [] as IpoOffer[],
+    issuerSeq: 1,
+    ipoDay: "",
   };
 }
 
@@ -236,7 +255,8 @@ function notional(symbol: string, qty: number, price: number): number {
 }
 
 export function positionValue(p: Position, q: Quote): number {
-  const inst = BY_SYMBOL[p.symbol]!;
+  const inst = BY_SYMBOL[p.symbol];
+  if (!inst || !q) return 0;
   const mtm = markPrice(q, p.qty);
   const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
   const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
@@ -244,7 +264,11 @@ export function positionValue(p: Position, q: Quote): number {
 }
 
 export function equityOf(cash: number, positions: Position[], quotes: Record<string, Quote>): number {
-  return cash + positions.reduce((s, p) => s + positionValue(p, quotes[p.symbol]!), 0);
+  return cash + positions.reduce((s, p) => {
+    const q = quotes[p.symbol];
+    if (!q) return s;
+    return s + positionValue(p, q);
+  }, 0);
 }
 
 function isAuctionPhaseWalk(clock: number, auction: AuctionBook): boolean {
@@ -264,7 +288,8 @@ function liquidateIfNeeded(
   const kept = positions.filter((p) => {
     const q = quotes[p.symbol];
     if (!q) return true;
-    const inst = BY_SYMBOL[p.symbol]!;
+    const inst = BY_SYMBOL[p.symbol];
+    if (!inst) return true;
     const mtm = markPrice(q, p.qty);
     const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
     const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
@@ -541,7 +566,13 @@ export const useDesk = create<DeskState>()(
       ...initial(),
       hydrateHistories: () => {
         const st = get();
+        const companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
+        const ipos = (st.ipos ?? []).map(normalizeIpo).filter((c): c is IpoOffer => !!c);
+        syncCustomRegistry(companies);
         let quotes = mergeQuotes(st.quotes);
+        for (const c of companies) {
+          if (!quotes[c.symbol]) quotes[c.symbol] = blankQuote(toInstrument(c), c.offer);
+        }
         let auction = st.auction ?? rollAuctionBook(st.clock);
         if (sessionPhase(st.clock) === "open-input" && Object.keys(auction.target || {}).length === 0) {
           const started = beginAuctionSession(quotes, auction, "open");
@@ -558,6 +589,12 @@ export const useDesk = create<DeskState>()(
         );
         repairQuotesFromCandles(quotes, candles);
         const histories = mergeHistories(st.histories, quotes);
+        for (const c of companies) {
+          if (!histories[c.symbol]?.length) histories[c.symbol] = [quotes[c.symbol]?.last ?? c.offer];
+        }
+        let candlesFilled = candles;
+        const missing = companies.filter((c) => !candlesFilled[c.symbol]).map((c) => c.symbol);
+        if (missing.length) candlesFilled = applyForeignCandles(candlesFilled, quotes, st.clock, missing, true);
         const reports = { ...seedReports(st.clock), ...(st.reports ?? {}) };
         const dividends = {
           ...seedDividends(
@@ -567,8 +604,8 @@ export const useDesk = create<DeskState>()(
           ),
           ...(st.dividends ?? {}),
         };
-        set({ quotes, candles, histories, auction, reports, dividends });
-        saveCandleBook(candles);
+        set({ quotes, candles: candlesFilled, histories, auction, reports, dividends, companies, ipos });
+        saveCandleBook(candlesFilled);
       },
       select: (symbol) => set({ selected: symbol }),
       setSpeed: (s) => set({ speed: s }),
@@ -627,6 +664,39 @@ export const useDesk = create<DeskState>()(
         let dayEquity = st.dayEquity;
         let dayEquityKey = st.dayEquityKey ?? "";
         let fx = st.fx ?? emptyFx();
+        let companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
+        let ipos = (st.ipos ?? []).map(normalizeIpo).filter((c): c is IpoOffer => !!c);
+        let issuerSeq = st.issuerSeq || 1;
+        let ipoDay = st.ipoDay ?? "";
+        let histories = st.histories;
+        syncCustomRegistry(companies);
+        const settleCo = () => {
+          const r = advanceCompanies({
+            clock,
+            companies,
+            ipos,
+            seq: issuerSeq,
+            ipoDay,
+            quotes,
+            cash,
+            positions,
+            histories,
+          });
+          companies = r.companies;
+          ipos = r.ipos;
+          issuerSeq = r.seq;
+          ipoDay = r.ipoDay;
+          quotes = r.quotes;
+          cash = r.cash;
+          positions = r.positions;
+          histories = r.histories;
+          if (r.news.length) {
+            for (const n of r.news) extraNews.unshift(n);
+          }
+          if (r.toast) toast = r.toast;
+          syncCustomRegistry(companies);
+          if (r.moved.length) candles = applyForeignCandles(candles, quotes, clock, r.moved, r.gap);
+        };
         if (!(dayEquity > 0) || !dayEquityKey) {
           dayEquity = equityOf(cash, positions, quotes);
           dayEquityKey = dayKey;
@@ -748,11 +818,13 @@ export const useDesk = create<DeskState>()(
           positions = liq.positions;
           if (liq.toast) toast = liq.toast;
           absorbForeign();
+          histories = stepped.histories;
+          settleCo();
           const eq = equityOf(cash, positions, quotes);
           set({
             clock,
             quotes,
-            histories: stepped.histories,
+            histories,
             candles,
             cash,
             positions,
@@ -768,6 +840,10 @@ export const useDesk = create<DeskState>()(
             dayEquity,
             dayEquityKey,
             fx,
+            companies,
+            ipos,
+            issuerSeq,
+            ipoDay,
             won: eq >= GOAL_EQUITY,
             busted: eq <= 0,
             toast: stepped.news?.extreme ? stepped.news.text : toast,
@@ -785,10 +861,12 @@ export const useDesk = create<DeskState>()(
         }
 
         absorbForeign();
+        settleCo();
         const eq = equityOf(cash, positions, quotes);
         set({
           clock,
           quotes,
+          histories,
           candles,
           cash,
           positions,
@@ -803,6 +881,10 @@ export const useDesk = create<DeskState>()(
           dayEquity,
           dayEquityKey,
           fx,
+          companies,
+          ipos,
+          issuerSeq,
+          ipoDay,
           won: eq >= GOAL_EQUITY,
           busted: eq <= 0,
           toast,
@@ -974,7 +1056,115 @@ export const useDesk = create<DeskState>()(
           fills,
         });
       },
+      foundCompany: (input) => {
+        const st = get();
+        if (st.won || st.busted) return "模擬已結束";
+        const companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
+        if (companies.filter((c) => c.origin === "player").length >= 3) return "你最多同時經營三家自營公司";
+        if (companies.length >= 12) return "市場新股太多，請等一等再上市";
+        const taken = new Set(companies.map((c) => c.symbol));
+        const built = buildFound(input, st.issuerSeq || 1, taken, st.clock);
+        if (built.error || !built.company || !built.plan) return built.error ?? "未能上市";
+        if (built.plan.cost > st.cash + 1e-6) return `現金不足，這次要付 ${built.plan.cost.toFixed(0)} 港元`;
+        const inst = toInstrument(built.company);
+        syncCustomRegistry([...companies, built.company]);
+        const q = blankQuote(inst, built.company.offer);
+        const quotes = { ...st.quotes, [inst.symbol]: q };
+        const candles = applyForeignCandles(st.candles ?? seedCandles(quotes, st.clock), quotes, st.clock, [inst.symbol], true);
+        const news = {
+          id: `found-${inst.symbol}-${st.clock}`,
+          text: `【上市】${built.company.name}（${inst.symbol}）於${built.company.board === "JP" ? "東證" : built.company.board === "US" ? "美股" : "港股"}集資上市。你持股 ${((built.plan.mine / built.company.sharesOut) * 100).toFixed(0)}%，${built.plan.stake >= 0.5 ? "以老闆身份掌權" : "以大股東身份掌權"}。`,
+          at: st.clock,
+          symbol: inst.symbol,
+          sign: 1 as const,
+        };
+        set({
+          cash: st.cash - built.plan.cost,
+          companies: [...companies, built.company],
+          issuerSeq: (st.issuerSeq || 1) + 1,
+          quotes,
+          candles,
+          histories: { ...st.histories, [inst.symbol]: [q.last] },
+          positions: [
+            ...st.positions,
+            { symbol: inst.symbol, qty: built.plan.mine, avgPrice: built.company.offer, leverage: 1 },
+          ],
+          selected: inst.symbol,
+          board: built.company.board,
+          news: [news, ...st.news].slice(0, 24),
+          toast: news.text,
+        });
+        return null;
+      },
+      manageCompany: (symbol, act) => {
+        const st = get();
+        if (st.won || st.busted) return "模擬已結束";
+        const companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
+        const company = companies.find((c) => c.symbol === symbol);
+        if (!company) return "這不是你可管理的公司";
+        const pos = st.positions.find((p) => p.symbol === symbol);
+        const qty = pos?.qty ?? 0;
+        const stake = company.sharesOut > 0 ? qty / company.sharesOut : 0;
+        if (stake < 0.3 - 1e-6) return "持股未達三成，未能介入管理。在市場增持至 30% 可重新掌權。";
+        const last = st.quotes[symbol]?.last ?? company.offer;
+        const applied = applyManage(company, act, qty, last);
+        if (applied.error) return applied.error;
+        const inst = toInstrument(applied.company);
+        syncCustomRegistry(companies.map((c) => (c.symbol === symbol ? applied.company : c)));
+        let quotes = st.quotes;
+        const q0 = quotes[symbol];
+        if (q0) {
+          const raw = Math.max(tickSize(last, inst.kind), last * (1 + applied.gap));
+          const px = roundTick(raw, inst.kind);
+          const t = tickSize(px, inst.kind);
+          quotes = {
+            ...quotes,
+            [symbol]: {
+              ...q0,
+              last: px,
+              bid: roundTick(Math.max(t, px - t), inst.kind),
+              ask: roundTick(px + t, inst.kind),
+              high: Math.max(q0.high, px),
+              low: Math.min(q0.low, px),
+              iep: px,
+            },
+          };
+        }
+        const note = {
+          id: `m-${symbol}-${st.clock}-${act}`,
+          text: applied.news,
+          at: st.clock,
+          symbol,
+          sign: (applied.gap >= 0 ? 1 : -1) as 1 | -1,
+        };
+        set({
+          companies: companies.map((c) => (c.symbol === symbol ? applied.company : c)),
+          cash: st.cash + applied.playerCash,
+          quotes,
+          news: [note, ...st.news].slice(0, 24),
+          toast: applied.news,
+        });
+        return null;
+      },
+      subscribeIpo: (id, lots) => {
+        const st = get();
+        if (st.won || st.busted) return "模擬已結束";
+        const ipos = (st.ipos ?? []).map(normalizeIpo).filter((c): c is IpoOffer => !!c);
+        const ipo = ipos.find((i) => i.id === id);
+        if (!ipo) return "這檔新股已截止";
+        const applied = applySubscribe(ipo, lots, st.cash);
+        if (applied.error) return applied.error;
+        const text = `已認購 ${applied.ipo.name}（${applied.ipo.symbol}）${lots} 手，資金已鎖定，上市日按招股價入帳。`;
+        set({
+          ipos: ipos.map((i) => (i.id === id ? applied.ipo : i)),
+          cash: applied.cash,
+          toast: text,
+          news: [{ id: `sub-${id}-${st.clock}`, text, at: st.clock, symbol: ipo.symbol, sign: 1 as const }, ...st.news].slice(0, 24),
+        });
+        return null;
+      },
       reset: () => {
+        clearCustomRegistry();
         set(initial());
         if (typeof window !== "undefined") {
           try {
@@ -1010,6 +1200,10 @@ export const useDesk = create<DeskState>()(
         indicators: s.indicators,
         board: s.board,
         fx: s.fx,
+        companies: s.companies,
+        ipos: s.ipos,
+        issuerSeq: s.issuerSeq,
+        ipoDay: s.ipoDay,
         speed: 0 as Speed,
       }),
       storage: createJSONStorage(() => ({

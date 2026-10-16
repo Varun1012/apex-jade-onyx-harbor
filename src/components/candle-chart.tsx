@@ -159,7 +159,8 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       data.forEach((c, i) => {
         const x = padL + slot * i + slot / 2;
         const bull = c.c >= c.o;
-        const color = bull ? up : down;
+        const jp = (BY_SYMBOL[symbol]?.market ?? "HK") === "JP";
+        const color = bull !== jp ? up : down;
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
         ctx.beginPath();
@@ -252,9 +253,10 @@ export function CandleChart({ symbol, tf }: { symbol: string; tf: Tf }) {
       data.forEach((c, i) => {
         const x = padL + slot * i + slot / 2;
         const bull = c.c >= c.o;
+        const jp = (BY_SYMBOL[symbol]?.market ?? "HK") === "JP";
         const vh = Math.max(1, ((c.v ?? 0) / maxV) * (volH - 4));
         ctx.globalAlpha = i === data.length - 1 ? 0.95 : 0.72;
-        ctx.fillStyle = bull ? up : down;
+        ctx.fillStyle = bull !== jp ? up : down;
         ctx.fillRect(x - bodyW / 2, volTop + volH - vh, bodyW, vh);
       });
       ctx.globalAlpha = 1;

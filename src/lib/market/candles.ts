@@ -1,5 +1,5 @@
 import { hkDate, hkParts } from "../format";
-import { UNIVERSE, roundTick, volumeUnit, type Instrument } from "./universe";
+import { BY_SYMBOL, UNIVERSE, roundTick, volumeUnit, type Instrument } from "./universe";
 import { isContinuous, isPreOpenSession, type Quote } from "./engine";
 
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
@@ -291,7 +291,7 @@ export function applyForeignCandles(
     "1d": Math.floor(clock / 86_400_000) * 86_400_000,
   };
   for (const symbol of symbols) {
-    const inst = UNIVERSE.find((i) => i.symbol === symbol);
+    const inst = BY_SYMBOL[symbol];
     const q = quotes[symbol];
     if (!inst || !q) continue;
     const c = q.last;

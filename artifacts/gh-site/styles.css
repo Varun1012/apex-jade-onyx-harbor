@@ -315,3 +315,17 @@ footer.site {
 .row-item.gap-up { background: var(--up-soft); }
 .row-item.gap-down { background: var(--down-soft); }
 .row-item.halted { background: var(--halt-soft); }
+.co { border: 1px solid var(--border); background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+.co h3 { margin: 0; color: var(--fg); letter-spacing: 0; text-transform: none; font-size: 14px; }
+.co-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.co-h button, .co .acts button, .co-list button { background: var(--secondary); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; min-height: 36px; padding: 0 8px; font-size: 12px; }
+.co .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.co .acts button { flex: 1 1 46%; }
+.co .acts button.on, .co .go { background: var(--primary); color: #121412; border-color: transparent; }
+.co .go { width: 100%; margin-top: 8px; min-height: 40px; font-size: 14px; }
+.co input, .co select { width: 100%; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; height: 40px; padding: 0 8px; }
+.co .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.co .form, .co .ipo, .co .mgr, .co-list { margin-top: 10px; }
+.co .ipo, .co .mgr { border-top: 1px solid var(--border); padding-top: 8px; }
+.co-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.co p { margin: 6px 0; font-size: 12px; }

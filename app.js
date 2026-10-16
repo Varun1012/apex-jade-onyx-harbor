@@ -68,9 +68,14 @@
   ];
   const BY = Object.fromEntries(UNIVERSE.map((i) => [i.s, i]));
   function mktOf(i) { return (i && i.m) || "HK"; }
+  function dirClass(sym, n) {
+    if (!(n > 0) && !(n < 0)) return "";
+    const jp = mktOf(BY[sym]) === "JP";
+    return (n > 0) !== jp ? "up" : "down";
+  }
   function listed(board) {
     const b = board || "HK";
-    return UNIVERSE.filter((i) => mktOf(i) === b).sort((a, c) => {
+    const base = UNIVERSE.filter((i) => mktOf(i) === b).sort((a, c) => {
       const pin = (s) => {
         if (b === "JP") return s === "N225" ? 0 : 1;
         if (b === "US") return s === "DJI" ? 0 : s === "SPX" ? 1 : s === "IXIC" ? 2 : 3;
@@ -84,6 +89,8 @@
       if (Number.isFinite(na) && Number.isFinite(nc)) return na - nc;
       return a.s.localeCompare(c.s);
     });
+    const extra = (state && state.companies ? state.companies : []).filter((c) => c.board === b).map(coInst);
+    return base.concat(extra);
   }
   function isHk(i) { return mktOf(i) === "HK"; }
 
@@ -915,6 +922,502 @@
     return out.slice(0, 3);
   }
 
+  const SECTORS = ["科技", "消費", "金融", "醫藥", "工業", "能源"];
+  const CO_BASE = {
+    科技: { margin: 0.16, pipeline: 58, morale: 62, brand: 54, capacity: 57 },
+    消費: { margin: 0.11, pipeline: 36, morale: 55, brand: 60, capacity: 58 },
+    金融: { margin: 0.24, pipeline: 28, morale: 52, brand: 50, capacity: 61 },
+    醫藥: { margin: 0.06, pipeline: 72, morale: 58, brand: 48, capacity: 46 },
+    工業: { margin: 0.1, pipeline: 34, morale: 50, brand: 46, capacity: 63 },
+    能源: { margin: 0.14, pipeline: 30, morale: 48, brand: 44, capacity: 60 },
+  };
+  const CO_NAMES = {
+    HK: ["青嶼生物", "維港雲科", "荔枝角機械", "南丫新能源", "啟德冷鏈", "西環精品", "赤柱戶外", "鯉魚門食品", "觀塘半導體", "深井材料"],
+    JP: ["青葉精密", "櫻橋食品", "港風遊戲", "北斗材料", "富士見物流", "汐留生技", "鎌倉戶外", "隅田能源"],
+    US: ["Harbor Chip", "Jade Bio", "Lantern Retail", "Northwind Energy", "Cinder Cloud", "Moss Retail", "Kiln Robotics", "Paper Lantern"],
+  };
+  function pvOf(board) { return board === "JP" ? 0.051 : board === "US" ? 7.8 : 1; }
+  function clampN(n, a, b) { return Math.max(a, Math.min(b, n)); }
+  function offerFor(board, scale) {
+    if (board === "JP") return scale === "micro" ? 400 : scale === "std" ? 1200 : 2800;
+    if (board === "US") return scale === "micro" ? 6 : scale === "std" ? 18 : 42;
+    return scale === "micro" ? 1 : scale === "std" ? 2.5 : 6;
+  }
+  function nextCoSymbol(board, seq, taken) {
+    for (let i = 0; i < 900; i++) {
+      const n = seq + i;
+      let symbol = board === "HK" ? String(8000 + (n % 900)).padStart(4, "0") : board === "JP" ? String(9100 + (n % 800)).padStart(4, "0") : "NQ" + String(n % 100).padStart(2, "0");
+      if (taken.has(symbol) || BY[symbol]) continue;
+      return symbol;
+    }
+    return "NQ" + seq;
+  }
+  function runRate(c) {
+    const base = (CO_BASE[c.sector] || CO_BASE["科技"]).margin;
+    let m = base + (c.brand - 50) * 0.0011 - (c.pipeline / 100) * 0.07;
+    m -= Math.min(0.16, (c.debt / Math.max(c.revenue, 1)) * 0.05);
+    m += (c.morale - 55) * -0.0006 + (c.capacity - 50) * 0.0005;
+    m = clampN(m, -0.3, 0.42);
+    return c.revenue * m - c.debt * 0.075;
+  }
+  function qualityOf(c) {
+    const q = 0.22 * (c.morale / 100) + 0.2 * (c.capacity / 100) + 0.24 * (c.brand / 100) + 0.34 * (c.pipeline / 100);
+    return clampN(q - Math.min(0.25, (c.debt / Math.max(c.revenue, 1)) * 0.15), 0.18, 0.92);
+  }
+  function fairPx(c) {
+    const q = qualityOf(c);
+    const pe = (8 + q * 28) * (1 - Math.min(0.35, c.payoutDrag * 0.28));
+    let fair = c.profit > 0 ? (c.profit / c.sharesOut) * pe : Math.max((Math.max(0, c.treasury - c.debt * 0.5) / c.sharesOut) * (0.45 + q), c.offer * 0.15);
+    return clampN(fair, c.offer * 0.12, c.offer * 6);
+  }
+  function coInst(c) {
+    return { s: c.symbol, n: c.name, k: "stock", start: c.offer, vol: 0.016, beta: 0.75, pv: pvOf(c.board), lev: 4, lot: 1, m: c.board, custom: true, sector: c.sector + (c.origin === "player" ? " · 自營" : " · 新股") };
+  }
+  function bootCompanies() {
+    for (const c of state.companies || []) {
+      const inst = coInst(c);
+      BY[c.symbol] = inst;
+      if (!state.quotes[c.symbol]) {
+        const last = rnd(c.offer, inst);
+        const t = tickSize(last, inst);
+        state.quotes[c.symbol] = { last, bid: rnd(last - t, inst), ask: rnd(last + t, inst), prev: last, o: last, h: last, l: last, iep: last };
+      }
+      if (state.candles && !state.candles[c.symbol]) state.candles[c.symbol] = seedCoBars(inst, state.quotes[c.symbol].last);
+    }
+  }
+  function clearCompanies() {
+    for (const c of state.companies || []) delete BY[c.symbol];
+  }
+  function seedCoBars(inst, last) {
+    const mk = (tf, n, vol) => {
+      const times = barTimes(state.clock, tf, n);
+      const arr = [];
+      let p = last;
+      for (let k = times.length - 1; k >= 0; k--) {
+        p = Math.max(inst.start * 0.45, p * (1 + gauss() * vol));
+        const c = rnd(p, inst);
+        const o = rnd(c * (1 + (Math.random() - 0.5) * vol), inst);
+        arr[k] = { t: times[k], o, h: Math.max(o, c), l: Math.min(o, c), c, v: 100 };
+      }
+      arr[arr.length - 1].c = last;
+      return arr;
+    };
+    return { "1d": mk("1d", 70, inst.vol * 0.4), "15m": mk("15m", 64, inst.vol * 0.25), "5m": mk("5m", 72, inst.vol * 0.18) };
+  }
+  function pushCo(sym, last, gap) {
+    const inst = BY[sym];
+    const book = state.candles[sym];
+    if (!inst || !book) return;
+    for (const tf of ["5m", "15m", "1d"]) {
+      const arr = book[tf];
+      const cap = tf === "5m" ? 220 : tf === "15m" ? 140 : 90;
+      const t = bucketStart(state.clock, tf);
+      const c = arr.at(-1);
+      if (c && c.t === t) {
+        if (gap) c.o = last;
+        c.c = last;
+        c.h = Math.max(c.h, last, c.o);
+        c.l = Math.min(c.l, last, c.o);
+        c.v = (c.v || 0) + 80;
+      } else {
+        const o = gap ? last : c ? c.c : last;
+        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: 80 });
+        if (arr.length > cap) arr.shift();
+      }
+    }
+  }
+  function writeCo(inst, raw, resetPrev) {
+    const q = state.quotes[inst.s];
+    const last = rnd(Math.max(raw, inst.start * 0.05), inst);
+    const t = tickSize(last, inst);
+    state.quotes[inst.s] = {
+      last,
+      bid: rnd(Math.max(t, last - t), inst),
+      ask: rnd(last + t, inst),
+      prev: resetPrev ? (q ? q.last : last) : q ? q.prev : last,
+      o: resetPrev ? last : q ? q.o : last,
+      h: resetPrev ? last : Math.max(q ? q.h : last, last),
+      l: resetPrev ? last : Math.min(q ? q.l : last, last),
+      iep: last,
+    };
+  }
+  function anchorCo(c) {
+    const probe = runRate(Object.assign({}, c, { revenue: 1000 }));
+    const m = probe / 1000 + ((c.debt || 0) * 0.075) / 1000;
+    const q = qualityOf(c);
+    const pe = (8 + q * 28) * (1 - Math.min(0.35, (c.payoutDrag || 0) * 0.28));
+    const want = (c.offer * c.sharesOut) / Math.max(pe, 1);
+    if (m > 0.02) c.revenue = Math.max(1, want / m);
+    c.profit = runRate(c);
+    return c;
+  }
+  function coLive(inst) {
+    const m = mktOf(inst);
+    if (m === "HK") return sessionPhase(state.clock) === "continuous";
+    const ph = symbolPhase(state.clock, inst);
+    if (m === "JP") return ph === "continuous";
+    return ph === "continuous" || ph === "pre" || ph === "night";
+  }
+  function sessKey(board) {
+    if (board === "JP") {
+      const p = zonedParts(state.clock, "Asia/Tokyo");
+      return "JP" + p.year + p.month + p.day;
+    }
+    if (board === "US") {
+      const p = zonedParts(state.clock, "America/New_York");
+      return "US" + p.year + p.month + p.day;
+    }
+    return "HK" + dayKey(state.clock);
+  }
+  function seedOps(sector, treasury) {
+    const base = CO_BASE[sector] || CO_BASE["科技"];
+    const revenue = treasury * (0.62 + base.margin);
+    const draft = { sector, revenue, debt: 0, morale: base.morale, capacity: base.capacity, brand: base.brand, pipeline: base.pipeline, payoutDrag: 0 };
+    return { revenue, profit: runRate(draft), morale: base.morale, capacity: base.capacity, brand: base.brand, pipeline: base.pipeline, debt: 0, retained: 0, payoutDrag: 0 };
+  }
+  function stakeOf(c) {
+    const p = state.pos.find((x) => x.s === c.symbol);
+    if (!p || !c.sharesOut) return 0;
+    return p.qty / c.sharesOut;
+  }
+  function roleOf(stake) {
+    if (stake >= 0.51 - 1e-9) return "老闆";
+    if (stake >= 0.3 - 1e-9) return "大股東";
+    if (stake > 0.001) return "小股東";
+    return "無持股";
+  }
+  function controlsCo(c) { return stakeOf(c) >= 0.3 - 1e-6; }
+  function briefCo(c) {
+    const bits = [];
+    if (c.morale < 40) bits.push("士氣低，產能同留人能力會轉差");
+    else if (c.morale > 72) bits.push("士氣高，但薪酬成本不輕");
+    if (c.pipeline < 32) bits.push("研發偏薄，市場會用較低市盈率");
+    else if (c.pipeline > 68) bits.push("研發厚，估值有增長溢價");
+    if (c.debt > c.treasury) bits.push("負債高過庫存現金，財務風險上升");
+    if (c.brand < 40) bits.push("品牌轉弱，搶客往往要減價");
+    bits.push(c.profit < 0 ? "正在虧損，派息會再傷現金" : "有盈利，要在留存同派息之間取捨");
+    return bits.slice(0, 3).join("。") + "。";
+  }
+  function pulseCo(c) {
+    c.morale = clampN(c.morale + (48 - c.morale) * 0.08, 4, 98);
+    c.capacity = clampN(c.capacity + (50 - c.capacity) * 0.06, 4, 98);
+    c.brand = clampN(c.brand + (47 - c.brand) * 0.05, 4, 98);
+    c.pipeline = clampN(c.pipeline + (34 - c.pipeline) * 0.1, 4, 98);
+    c.payoutDrag *= 0.9;
+    const g = (c.capacity - 50) * 0.002 + (c.brand - 50) * 0.0018 + (c.pipeline - 42) * 0.0015 + (c.morale - 45) * 0.0006;
+    c.revenue = Math.max(c.revenue * 0.45, c.revenue * (1 + g));
+    c.profit = runRate(c);
+    const slice = c.profit / 80;
+    c.retained += slice;
+    c.treasury = Math.max(0, c.treasury + slice);
+    if (c.debt > 0 && c.treasury < c.debt * 0.08 && c.debt > c.revenue * 0.25) {
+      c.morale = clampN(c.morale - 6, 4, 98);
+      c.brand = clampN(c.brand - 4, 4, 98);
+      return "【公司】" + c.name + "（" + c.symbol + "）資金鏈緊張，市場憂慮償債能力。";
+    }
+    if (c.pipeline > 76 && Math.random() < 0.08) {
+      c.brand = clampN(c.brand + 6, 4, 98);
+      c.pipeline = clampN(c.pipeline + 4, 4, 98);
+      c.profit = runRate(c);
+      return "【公司】" + c.name + "（" + c.symbol + "）研發取得進展，增長預期上調。";
+    }
+    return "";
+  }
+  function planFound(input) {
+    const name = String(input.name || "").trim().replace(/\s+/g, " ").replace(/[<>&]/g, "").slice(0, 16);
+    if (name.length < 2) return { error: "公司名稱至少兩個字" };
+    const sector = SECTORS.indexOf(input.sector) >= 0 ? input.sector : "科技";
+    const board = input.board === "JP" || input.board === "US" ? input.board : "HK";
+    const scale = input.scale === "std" || input.scale === "large" ? input.scale : "micro";
+    const stake = +input.stake >= 0.5 ? 0.51 : 0.3;
+    const offer = offerFor(board, scale);
+    const pv = pvOf(board);
+    const raise = scale === "large" ? 180000 : scale === "std" ? 40000 : 8000;
+    const sharesOut = Math.max(200, Math.round(raise / (offer * pv)));
+    let mine = Math.round(sharesOut * stake);
+    if (mine / sharesOut < stake - 0.004) mine += 1;
+    if (mine >= sharesOut) mine = sharesOut - Math.max(1, Math.round(sharesOut * 0.2));
+    const taken = new Set((state.companies || []).map((c) => c.symbol));
+    const symbol = nextCoSymbol(board, state.seq || 1, taken);
+    const cap = sharesOut * offer * pv;
+    return { name, sector, board, scale, stake, offer, sharesOut, mine, cap, cost: mine * offer * pv, symbol, pv };
+  }
+  function foundCompany() {
+    if (state.won || state.busted) return "模擬已結束";
+    const owned = (state.companies || []).filter((c) => c.origin === "player").length;
+    if (owned >= 3) return "你最多同時經營三家自營公司";
+    const plan = planFound(state.coForm || {});
+    if (plan.error) return plan.error;
+    if (plan.cost > state.cash + 1e-6) return "現金不足，這次要付 " + Math.round(plan.cost) + " 港元";
+    const treasury = (plan.cap * 0.96) / plan.pv;
+    const ops = seedOps(plan.sector, treasury);
+    const company = anchorCo(Object.assign({
+      symbol: plan.symbol, name: plan.name, sector: plan.sector, board: plan.board, sharesOut: plan.sharesOut, offer: plan.offer,
+      treasury, origin: "player", foundedAt: state.clock, lastPulse: state.clock, pxKey: "",
+    }, ops));
+    state.companies = (state.companies || []).concat(company);
+    state.seq = (state.seq || 1) + 1;
+    const inst = coInst(company);
+    BY[inst.s] = inst;
+    const last = rnd(plan.offer, inst);
+    const t = tickSize(last, inst);
+    state.quotes[inst.s] = { last, bid: rnd(last - t, inst), ask: rnd(last + t, inst), prev: last, o: last, h: last, l: last, iep: last };
+    if (!state.candles) state.candles = seedCandles(state.quotes, state.clock);
+    state.candles[inst.s] = seedCoBars(inst, last);
+    state.cash -= plan.cost;
+    state.pos.push({ s: inst.s, qty: plan.mine, avg: plan.offer, lev: 1 });
+    state.sel = inst.s;
+    state.board = plan.board;
+    state.news = "【上市】" + company.name + "（" + inst.s + "）集資上市。你持股 " + Math.round((plan.mine / plan.sharesOut) * 100) + "%，" + (plan.stake >= 0.5 ? "以老闆身份掌權。" : "以大股東身份掌權。");
+    toast(state.news);
+    state.coDirty = true;
+    return "";
+  }
+  function manageCompany(symbol, act) {
+    const c = (state.companies || []).find((x) => x.symbol === symbol);
+    if (!c) return "這不是你可管理的公司";
+    if (!controlsCo(c)) return "持股未達三成，未能介入管理。在市場增持至 30% 可重新掌權。";
+    const pos = state.pos.find((p) => p.s === symbol);
+    const qty = pos ? pos.qty : 0;
+    const before = fairPx(c);
+    const q = state.quotes[symbol];
+    const last = q ? q.last : c.offer;
+    let note = "";
+    if (act === "hr-freeze") {
+      c.morale = clampN(c.morale - 16, 4, 98); c.capacity = clampN(c.capacity - 12, 4, 98); c.brand = clampN(c.brand - 3, 4, 98);
+      note = "凍結招聘：短期成本下降，士氣同產能會掉。";
+    } else if (act === "hr-raise") {
+      const cost = Math.max(c.treasury * 0.08, c.revenue * 0.012);
+      if (c.treasury < cost * 1.15) return "庫存現金不夠加薪搶人";
+      c.treasury -= cost; c.morale = clampN(c.morale + 16, 4, 98); c.capacity = clampN(c.capacity + 8, 4, 98);
+      note = "加薪搶人：現金減少，士氣同產能上升。";
+    } else if (act === "fin-borrow") {
+      if (c.debt > c.treasury * 1.6 + c.revenue * 0.35) return "負債過高，銀行拒貸";
+      const borrow = Math.max(c.revenue * 0.16, c.treasury * 0.2);
+      c.debt += borrow; c.treasury += borrow * 0.97; c.brand = clampN(c.brand - 3, 4, 98);
+      note = "發債：現金增加，利息會吞噬盈利。";
+    } else if (act === "fin-repay") {
+      const pay = Math.min(c.debt, c.treasury * 0.28);
+      if (pay < c.offer * 2) return "沒有可還的債務，或現金太薄";
+      c.treasury -= pay; c.debt -= pay;
+      note = "還債：負債表乾淨些，倍數容易擴。";
+    } else if (act === "ops-cut") {
+      c.brand = clampN(c.brand - 12, 4, 98); c.morale = clampN(c.morale - 8, 4, 98); c.capacity = clampN(c.capacity - 4, 4, 98); c.profit *= 1.08;
+      note = "削減開支：盈利好看，品牌同士氣受損。";
+    } else if (act === "ops-grow") {
+      const cost = c.treasury * 0.1;
+      if (cost < c.revenue * 0.004) return "庫存現金不夠搶市佔";
+      c.treasury -= cost; c.revenue *= 1.06; c.brand = clampN(c.brand + 14, 4, 98); c.profit *= 0.9;
+      note = "搶市佔：燒錢換收入，利潤率先跌。";
+    } else if (act === "rnd-stop") {
+      c.pipeline = clampN(c.pipeline - 18, 4, 98); c.brand = clampN(c.brand - 4, 4, 98); c.profit *= 1.07;
+      note = "停研發：利潤回升，市盈率會縮。";
+    } else if (act === "rnd-push") {
+      const cost = c.treasury * 0.12;
+      if (c.treasury < cost * 1.2) return "庫存現金不夠重押研發";
+      c.treasury -= cost; c.pipeline = clampN(c.pipeline + 18, 4, 98); c.profit *= 0.88;
+      if (Math.random() < 0.22) {
+        c.pipeline = clampN(c.pipeline + 8, 4, 98); c.brand = clampN(c.brand + 6, 4, 98);
+        note = "重押研發，而且出現突破。";
+      } else note = "重押研發：短期利潤下跌，突破不是必然。";
+    } else if (act === "div-none") {
+      c.payoutDrag = Math.max(0, c.payoutDrag - 0.15);
+      note = "暫不派息：利潤留下再投資。";
+    } else {
+      const rich = act === "div-rich";
+      const total = Math.min(Math.max(0, c.retained) * (rich ? 0.75 : 0.35), c.treasury * (rich ? 0.3 : 0.12));
+      if (!(total > c.offer * c.sharesOut * 0.0015)) return "未有足夠可分派溢利。先讓公司賺到錢。";
+      const dps = total / c.sharesOut;
+      c.retained -= total; c.treasury -= total;
+      c.payoutDrag = clampN(c.payoutDrag + (rich ? 0.7 : 0.28), 0, 1.5);
+      c.profit = runRate(c);
+      state.cash += qty * dps * pvOf(c.board);
+      const after = fairPx(c);
+      const gap = clampN(-(dps / Math.max(last, 1e-9)) + ((after - before) / Math.max(before, 1e-9)) * 0.35 + (rich ? -0.012 : -0.002), -0.14, 0.08);
+      if (q) writeCo(coInst(c), last * (1 + gap), false);
+      note = (rich ? "進取" : "穩健") + "派息：每股 " + dps.toFixed(4) + "。股價除淨。";
+      state.news = "【派息】" + c.name + "（" + c.symbol + "）" + note;
+      toast(state.news);
+      state.coDirty = true;
+      return "";
+    }
+    c.profit = runRate(c);
+    const after = fairPx(c);
+    const sent = { "hr-freeze": 0.012, "hr-raise": -0.006, "fin-borrow": -0.01, "fin-repay": 0.012, "ops-cut": 0.01, "ops-grow": 0.004, "rnd-stop": 0.008, "rnd-push": -0.004, "div-none": 0.004 }[act] || 0;
+    const gap = clampN(((after - before) / Math.max(before, 1e-9)) * 0.55 + sent, -0.12, 0.12);
+    if (q) writeCo(coInst(c), last * (1 + gap), false);
+    state.news = "【公司】" + c.name + "（" + c.symbol + "）" + note;
+    toast(state.news);
+    state.coDirty = true;
+    return "";
+  }
+  function ipoLotShares(ipo) { return Math.max(1, Math.round(1500 / (ipo.offer * pvOf(ipo.board)))); }
+  function ipoLotCost(ipo) { return ipoLotShares(ipo) * ipo.offer * pvOf(ipo.board); }
+  function subscribeIpo(id, lots) {
+    const ipo = (state.ipos || []).find((i) => i.id === id);
+    if (!ipo) return "這檔新股已截止";
+    const n = Math.floor(+lots);
+    if (!(n > 0)) return "請選擇認購手數";
+    const add = n * ipoLotShares(ipo);
+    if (ipo.subShares + add > Math.floor(ipo.sharesOut * 0.4)) return "單一新股最多認購四成";
+    const cost = add * ipo.offer * pvOf(ipo.board);
+    if (cost > state.cash + 1e-6) return "現金不足以認購";
+    ipo.subShares += add;
+    ipo.lockedHkd += cost;
+    state.cash -= cost;
+    state.news = "已認購 " + ipo.name + "（" + ipo.symbol + "）" + n + " 手，資金已鎖定。";
+    toast(state.news);
+    state.coDirty = true;
+    return "";
+  }
+  function stepCompanies() {
+    if (!state.companies) state.companies = [];
+    if (!state.ipos) state.ipos = [];
+    if (!state.seq) state.seq = 1;
+    const dk = dayKey(state.clock);
+    if (state.ipoDay !== dk && !state.ipos.length && state.companies.length < 10 && Math.random() < 0.34) {
+      const boards = ["HK", "JP", "US"];
+      const board = boards[Math.floor(Math.random() * 3)];
+      const names = CO_NAMES[board];
+      const name = names[Math.floor(Math.random() * names.length)];
+      const sector = SECTORS[Math.floor(Math.random() * SECTORS.length)];
+      const scale = Math.random() < 0.55 ? "micro" : "std";
+      const offer = offerFor(board, scale);
+      const pv = pvOf(board);
+      const raise = scale === "micro" ? 12000 + Math.random() * 8000 : 28000 + Math.random() * 30000;
+      const sharesOut = Math.max(200, Math.round(raise / (offer * pv)));
+      const taken = new Set(state.companies.map((c) => c.symbol));
+      const symbol = nextCoSymbol(board, state.seq, taken);
+      state.seq += 1;
+      const treasury = sharesOut * offer * 0.96;
+      const ops = seedOps(sector, treasury);
+      const shaped = anchorCo(Object.assign({ offer, sharesOut, sector, board, payoutDrag: 0 }, ops));
+      let heat = (Math.random() - 0.45) * 0.22;
+      if (Math.random() < 0.12) heat += 0.16 + Math.random() * 0.18;
+      if (Math.random() < 0.08) heat -= 0.1;
+      heat = clampN(heat, -0.22, 0.42);
+      const waitMin = 360 + Math.floor(Math.random() * 480);
+      const ipo = Object.assign({
+        id: "ipo-" + state.clock + "-" + symbol, symbol, name, heat,
+        subShares: 0, lockedHkd: 0, listAt: state.clock + waitMin * 60000,
+      }, shaped, { treasury, offer, sharesOut, sector, board });
+      state.ipos.push(ipo);
+      state.news = "【新股】" + name + "（" + symbol + "）正在招股，招股價 " + offer + "，一手約 HK$" + Math.round(ipoLotCost(ipo)) + "。";
+      toast(state.news);
+      state.coDirty = true;
+    }
+    if (state.ipoDay !== dk) state.ipoDay = dk;
+    const stay = [];
+    for (const ipo of state.ipos) {
+      if (state.clock < ipo.listAt) { stay.push(ipo); continue; }
+      const company = {
+        symbol: ipo.symbol, name: ipo.name, sector: ipo.sector, board: ipo.board, sharesOut: ipo.sharesOut, offer: ipo.offer,
+        treasury: ipo.treasury, revenue: ipo.revenue, profit: ipo.profit, debt: ipo.debt, morale: ipo.morale, capacity: ipo.capacity,
+        brand: ipo.brand, pipeline: ipo.pipeline, retained: 0, payoutDrag: 0, origin: "ipo", foundedAt: state.clock, lastPulse: state.clock,
+        pxKey: sessKey(ipo.board),
+      };
+      state.companies.push(company);
+      const inst = coInst(company);
+      BY[inst.s] = inst;
+      const openPx = Math.max(inst.start * 0.2, ipo.offer * (1 + ipo.heat));
+      const last = rnd(openPx, inst);
+      const t = tickSize(last, inst);
+      state.quotes[inst.s] = { last, bid: rnd(Math.max(t, last - t), inst), ask: rnd(last + t, inst), prev: rnd(ipo.offer, inst), o: last, h: last, l: last, iep: last };
+      if (!state.candles) state.candles = {};
+      state.candles[inst.s] = seedCoBars(inst, last);
+      if (ipo.subShares > 0) state.pos.push({ s: inst.s, qty: ipo.subShares, avg: ipo.offer, lev: 1 });
+      const pct = (ipo.heat * 100).toFixed(1);
+      state.news = ipo.heat >= 0 ? "【新股】" + ipo.name + "（" + ipo.symbol + "）上市，首日高開 " + pct + "%。" : "【新股】" + ipo.name + "（" + ipo.symbol + "）上市破發 " + Math.abs(ipo.heat * 100).toFixed(1) + "%。";
+      toast(state.news);
+      state.coDirty = true;
+    }
+    state.ipos = stay;
+    for (const c of state.companies) {
+      const inst = coInst(c);
+      BY[c.symbol] = inst;
+      if (!state.quotes[c.symbol]) writeCo(inst, c.offer, true);
+      let pulses = 0;
+      if (state.clock - (c.lastPulse || 0) >= 3600000) pulses = Math.min(3, Math.floor((state.clock - c.lastPulse) / 3600000));
+      for (let p = 0; p < pulses; p++) {
+        const line = pulseCo(c);
+        if (line && p === pulses - 1) { state.news = line; state.coDirty = true; }
+      }
+      if (pulses) c.lastPulse += pulses * 3600000;
+      if (!coLive(inst)) continue;
+      const key = sessKey(c.board);
+      const q = state.quotes[c.symbol];
+      if (c.pxKey !== key) {
+        c.pxKey = key;
+        const pull = ((fairPx(c) - q.last) / Math.max(q.last, 1e-9)) * 0.25;
+        const overnight = clampN(pull + (Math.random() - 0.5) * 0.012, -0.06, 0.06);
+        writeCo(inst, q.last * (1 + overnight), true);
+        pushCo(c.symbol, state.quotes[c.symbol].last, true);
+      } else {
+        const pull = ((fairPx(c) - q.last) / Math.max(q.last, 1e-9)) * 0.04;
+        const noise = gauss() * 0.004 * (1.35 - qualityOf(c));
+        writeCo(inst, q.last * (1 + pull + noise), false);
+        pushCo(c.symbol, state.quotes[c.symbol].last, false);
+      }
+    }
+  }
+  function normCo(r) {
+    if (!r || !r.symbol || !r.name) return null;
+    const sector = SECTORS.indexOf(r.sector) >= 0 ? r.sector : "科技";
+    const base = CO_BASE[sector];
+    const board = r.board === "JP" || r.board === "US" ? r.board : "HK";
+    return {
+      symbol: String(r.symbol), name: String(r.name).slice(0, 16), sector, board,
+      sharesOut: Math.max(1, +r.sharesOut || 1000), offer: Math.max(0.01, +r.offer || 1),
+      treasury: +r.treasury || 1000, revenue: Math.max(1, +r.revenue || 1000), profit: +r.profit || 0,
+      debt: Math.max(0, +r.debt || 0), morale: +r.morale || base.morale, capacity: +r.capacity || base.capacity,
+      brand: +r.brand || base.brand, pipeline: +r.pipeline || base.pipeline, retained: +r.retained || 0,
+      payoutDrag: Math.max(0, +r.payoutDrag || 0), origin: r.origin === "ipo" ? "ipo" : "player",
+      foundedAt: +r.foundedAt || 0, lastPulse: +r.lastPulse || 0, pxKey: r.pxKey || "",
+    };
+  }
+  function normIpo(r) {
+    if (!r || !r.id || !r.symbol || !r.name || !(r.listAt > 0)) return null;
+    const sector = SECTORS.indexOf(r.sector) >= 0 ? r.sector : "科技";
+    const board = r.board === "JP" || r.board === "US" ? r.board : "HK";
+    return {
+      id: String(r.id), symbol: String(r.symbol), name: String(r.name).slice(0, 16), sector, board,
+      offer: Math.max(0.01, +r.offer || 1), sharesOut: Math.max(1, +r.sharesOut || 1000),
+      treasury: +r.treasury || 1000, revenue: Math.max(1, +r.revenue || 1000), profit: +r.profit || 0,
+      debt: Math.max(0, +r.debt || 0), morale: +r.morale || 55, capacity: +r.capacity || 55, brand: +r.brand || 50,
+      pipeline: +r.pipeline || 40, heat: +r.heat || 0, subShares: Math.max(0, +r.subShares || 0),
+      lockedHkd: Math.max(0, +r.lockedHkd || 0), listAt: +r.listAt || 0,
+    };
+  }
+  function coPanelHtml() {
+    const f = state.coForm || { name: "", sector: "科技", board: "HK", scale: "micro", stake: "0.51" };
+    state.coForm = f;
+    const preview = planFound({ name: (f.name || "").trim().length >= 2 ? f.name : "草案", sector: f.sector, board: f.board, scale: f.scale, stake: f.stake });
+    const focus = (state.companies || []).find((c) => c.symbol === state.sel && controlsCo(c)) || (state.companies || []).find(controlsCo);
+    const acts = [
+      ["hr-freeze", "人事 · 凍結招聘"], ["hr-raise", "人事 · 加薪搶人"], ["fin-borrow", "財務 · 發債"], ["fin-repay", "財務 · 還債"],
+      ["ops-cut", "營運 · 削減開支"], ["ops-grow", "營運 · 搶市佔"], ["rnd-stop", "研發 · 停研發"], ["rnd-push", "研發 · 重押"],
+      ["div-none", "派息 · 暫不派"], ["div-modest", "派息 · 穩健"], ["div-rich", "派息 · 進取"],
+    ];
+    const ipos = (state.ipos || []).map((ipo) => {
+      const offer = ipo.board === "JP" ? "¥" + ipo.offer : ipo.board === "US" ? "US$" + ipo.offer : "HK$" + ipo.offer;
+      return `<div class="ipo"><b>新股 ${esc(ipo.name)}</b> <span class="mono muted">${ipo.symbol}</span><div class="muted">${ipo.board} · ${esc(ipo.sector)} · 招股價 ${offer} · 一手約 ${fmtH(ipoLotCost(ipo))}${ipo.subShares ? " · 已認購 " + fmtQ(ipo.subShares) + " 股" : ""}</div><div class="acts">${[1, 5, 10].map((n) => `<button type="button" data-ipo="${ipo.id}" data-lots="${n}">認購 ${n} 手</button>`).join("")}</div></div>`;
+    }).join("");
+    const list = (state.companies || []).map((c) => `<button type="button" data-s="${c.symbol}">${c.symbol} ${esc(c.name)} · ${roleOf(stakeOf(c))} ${(stakeOf(c) * 100).toFixed(0)}%</button>`).join("");
+    const mgr = focus ? `<div class="mgr"><b>${esc(focus.name)}</b> <span class="mono muted">${focus.symbol}</span> · ${roleOf(stakeOf(focus))}<p class="muted">${esc(briefCo(focus))}</p><p class="mono muted">士氣 ${Math.round(focus.morale)} · 產能 ${Math.round(focus.capacity)} · 品牌 ${Math.round(focus.brand)} · 研發 ${Math.round(focus.pipeline)}</p><p class="mono muted">庫存 ${Math.round(focus.treasury)} · 負債 ${Math.round(focus.debt)} · 盈利 ${Math.round(focus.profit)} · 可派 ${Math.round(Math.max(0, focus.retained))}</p><p class="mono">合理值 ${fmtP(fairPx(focus), coInst(focus))}${state.quotes[focus.symbol] ? " · 現價 " + fmtP(state.quotes[focus.symbol].last, coInst(focus)) : ""}</p><div class="acts">${acts.map(([id, lab]) => `<button type="button" data-act="${id}" data-co="${focus.symbol}">${lab}</button>`).join("")}</div></div>` : ((state.companies || []).length ? `<p class="muted">持股未達三成的公司只能買賣，不能派息或改部門。</p>` : "");
+    const form = `<div class="form">
+      <input id="co-name" maxlength="16" placeholder="公司名稱" value="${esc(f.name)}" />
+      <div class="row2">
+        <select id="co-sector">${SECTORS.map((s) => `<option ${f.sector === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+        <select id="co-board"><option value="HK" ${f.board === "HK" ? "selected" : ""}>港股</option><option value="JP" ${f.board === "JP" ? "selected" : ""}>日股</option><option value="US" ${f.board === "US" ? "selected" : ""}>美股</option></select>
+      </div>
+      <div class="acts">${[["micro", "微型"], ["std", "標準"], ["large", "大型"]].map(([id, lab]) => `<button type="button" data-scale="${id}" class="${f.scale === id ? "on" : ""}">${lab}</button>`).join("")}</div>
+      <div class="acts"><button type="button" data-stake="0.51" class="${+f.stake >= 0.5 ? "on" : ""}">老闆 51%</button><button type="button" data-stake="0.3" class="${+f.stake < 0.5 ? "on" : ""}">大股東 30%</button></div>
+      ${preview.cost != null ? `<p class="muted">市值約 ${fmtH(preview.cap)} · 你要付 ${fmtH(preview.cost)} · 可得 ${fmtQ(preview.mine)} 股</p>` : ""}
+      <button type="button" id="co-go" class="go">集資上市</button>
+    </div>`;
+    return `<section class="co" data-company><div class="co-h"><h3>公司</h3><button type="button" id="co-toggle">${state.coOpen ? "收起開公司" : "開公司集資上市"}</button></div><p class="muted">自己做發起人，餘額向市場配售。持股 30% 可管部門同派息，51% 是老闆。賣低過三成就失去管理權。</p>${ipos}${state.coOpen || !(state.companies || []).some((c) => c.origin === "player") ? form : ""}${list ? `<div class="co-list">${list}</div>` : ""}${mgr}</section>`;
+  }
+
   function fresh() {
     return {
       cash: START,
@@ -922,7 +1425,7 @@
       candles: null,
       pos: [],
       fills: [],
-      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。綠升紅跌。",
+      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。港股美股綠升紅跌，日股紅漲綠跌。",
       sel: "0700",
       speed: 1,
       tf: "15m",
@@ -948,6 +1451,12 @@
       ind: { boll: false, rsi: false },
       board: "HK",
       fx: null,
+      companies: [],
+      ipos: [],
+      seq: 1,
+      ipoDay: "",
+      coForm: { name: "", sector: "科技", board: "HK", scale: "micro", stake: "0.51" },
+      coOpen: true,
     };
   }
 
@@ -960,6 +1469,22 @@
       if (!q || typeof q.last !== "number" || !(q.last > 0)) continue;
       const last = q.last;
       out[i.s] = {
+        last,
+        bid: typeof q.bid === "number" ? q.bid : last,
+        ask: typeof q.ask === "number" ? q.ask : last,
+        prev: typeof q.prev === "number" && q.prev > 0 ? q.prev : last,
+        o: typeof q.o === "number" ? q.o : last,
+        h: typeof q.h === "number" ? q.h : last,
+        l: typeof q.l === "number" ? q.l : last,
+        iep: typeof q.iep === "number" && q.iep > 0 ? q.iep : last,
+      };
+    }
+    for (const s of Object.keys(saved)) {
+      if (out[s]) continue;
+      const q = saved[s];
+      if (!q || typeof q.last !== "number" || !(q.last > 0)) continue;
+      const last = q.last;
+      out[s] = {
         last,
         bid: typeof q.bid === "number" ? q.bid : last,
         ask: typeof q.ask === "number" ? q.ask : last,
@@ -985,6 +1510,17 @@
         row[tf] = arr.map((c) => [c.t, c.o, c.h, c.l, c.c, c.v || 0]);
       }
       out[i.s] = row;
+    }
+    for (const c of state.companies || []) {
+      const b = book[c.symbol];
+      if (!b || out[c.symbol]) continue;
+      const row = {};
+      for (const tf of ["5m", "15m", "1d"]) {
+        const arr = b[tf];
+        if (!arr || !arr.length) continue;
+        row[tf] = arr.map((cnd) => [cnd.t, cnd.o, cnd.h, cnd.l, cnd.c, cnd.v || 0]);
+      }
+      out[c.symbol] = row;
     }
     return out;
   }
@@ -1020,6 +1556,22 @@
           }
         }
         book[i.s][tf] = list.length >= 2 ? list : seeded[i.s][tf];
+      }
+    }
+    for (const c of state.companies || []) {
+      const slot = saved[c.symbol];
+      if (!slot || book[c.symbol]) continue;
+      book[c.symbol] = {};
+      for (const tf of ["5m", "15m", "1d"]) {
+        const rows = slot[tf];
+        const list = [];
+        if (Array.isArray(rows)) {
+          for (const row of rows) {
+            const candle = parseCandle(row);
+            if (candle) list.push(candle);
+          }
+        }
+        if (list.length >= 2) book[c.symbol][tf] = list;
       }
     }
     return book;
@@ -1097,6 +1649,12 @@
           },
           board: s.board === "JP" || s.board === "US" ? s.board : "HK",
           fx: s.fx && typeof s.fx === "object" ? s.fx : null,
+          companies: Array.isArray(s.companies) ? s.companies.map(normCo).filter(Boolean) : [],
+          ipos: Array.isArray(s.ipos) ? s.ipos.map(normIpo).filter(Boolean) : [],
+          seq: typeof s.seq === "number" ? s.seq : 1,
+          ipoDay: typeof s.ipoDay === "string" ? s.ipoDay : "",
+          coForm: s.coForm && typeof s.coForm === "object" ? s.coForm : state.coForm,
+          coOpen: s.coOpen !== false,
         });
         if (typeof s.news === "string" && s.news) state.news = s.news;
         if (s.candles) savedCandles = s.candles;
@@ -1119,6 +1677,7 @@
   dropPremature(state.candles, state.clock);
   adoptForming(state.candles, state.clock);
   repairQuotesFromCandles(state.quotes, state.candles);
+  bootCompanies();
   if (!(state.dayEq > 0) || !state.dayKey) {
     state.dayEq = equity();
     state.dayKey = dayKey(state.clock);
@@ -1137,6 +1696,11 @@
       const q = quotes[i.s];
       if (!q) continue;
       out[i.s] = { last: q.last, bid: q.bid, ask: q.ask, prev: q.prev, o: q.o, h: q.h, l: q.l, iep: q.iep || q.last };
+    }
+    for (const c of state.companies || []) {
+      const q = quotes[c.symbol];
+      if (!q || out[c.symbol]) continue;
+      out[c.symbol] = { last: q.last, bid: q.bid, ask: q.ask, prev: q.prev, o: q.o, h: q.h, l: q.l, iep: q.iep || q.last };
     }
     return out;
   }
@@ -1168,6 +1732,12 @@
       ind: state.ind,
       board: state.board || "HK",
       fx: state.fx || null,
+      companies: state.companies || [],
+      ipos: state.ipos || [],
+      seq: state.seq || 1,
+      ipoDay: state.ipoDay || "",
+      coForm: state.coForm || null,
+      coOpen: state.coOpen !== false,
     };
   }
   let persistTimer = null;
@@ -1829,6 +2399,7 @@
     const prevPhase = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
     state.clock = advanceClock(state.clock, 1);
     stepForeign();
+    stepCompanies();
     const hp = hkParts(state.clock);
     const dk = dayKey(state.clock);
     dropPremature(state.candles, state.clock);
@@ -1878,7 +2449,7 @@
       persist();
       const phaseNow = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
       if (phaseNow !== prevPhase) render();
-      else paintLive();
+      else finishPaint();
       return;
     }
     const shock = gauss() * 0.0018;
@@ -1996,7 +2567,7 @@
     }
     persist();
     if (state.won || state.busted) render();
-    else paintLive();
+    else finishPaint();
   }
 
   function place(side) {
@@ -2192,7 +2763,8 @@
     data.forEach((c, i) => {
       const x = pad + slot * i + slot / 2;
       const up = c.c >= c.o;
-      const col = up ? "#2f8f6b" : "#c4453c";
+      const jp = mktOf(BY[state.sel]) === "JP";
+      const col = up !== jp ? "#2f8f6b" : "#c4453c";
       ctx.strokeStyle = col;
       ctx.fillStyle = col;
       ctx.beginPath();
@@ -2253,7 +2825,9 @@
       const x = pad + slot * i + slot / 2;
       const vh = Math.max(1, ((c.v || 0) / maxV) * (volH - 4));
       ctx.globalAlpha = i === data.length - 1 ? 0.95 : 0.72;
-      ctx.fillStyle = c.c >= c.o ? "#2f8f6b" : "#c4453c";
+      const upBar = c.c >= c.o;
+      const jpBar = mktOf(BY[state.sel]) === "JP";
+      ctx.fillStyle = upBar !== jpBar ? "#2f8f6b" : "#c4453c";
       ctx.fillRect(x - bodyW / 2, volTop + volH - vh, bodyW, vh);
     });
     ctx.globalAlpha = 1;
@@ -2310,6 +2884,7 @@
 
   function hardReset() {
     const keepMusic = state.music;
+    clearCompanies();
     Object.assign(state, fresh());
     state.candles = seedCandles(state.quotes, state.clock);
     state.music = keepMusic;
@@ -2318,6 +2893,14 @@
   }
 
 
+  function finishPaint() {
+    if (state.coDirty) {
+      state.coDirty = false;
+      render();
+      return;
+    }
+    paintLive();
+  }
   function paintLive() {
     const clockEl = document.getElementById("sim-clock");
     if (!clockEl) {
@@ -2336,7 +2919,7 @@
     const hsiChg = document.getElementById("hsi-chg");
     if (hsiChg && fq) {
       hsiChg.textContent = fmtPct(fch);
-      hsiChg.className = fch >= 0 ? "up" : "down";
+      hsiChg.className = dirClass(flag, fch);
     }
     const idxSub = document.getElementById("idx-sub");
     if (idxSub) {
@@ -2372,7 +2955,7 @@
       const c = (qq.last - qq.prev) / qq.prev;
       const px = row.querySelector(".px");
       if (px) {
-        px.className = "mono px " + (c >= 0 ? "up" : "down");
+        px.className = "mono px " + dirClass(s, c);
         px.innerHTML = fmtP(qq.last, inst) + "<br><small>" + fmtPct(c) + "</small>";
       }
       const name = row.querySelector(".name");
@@ -2388,7 +2971,7 @@
     const selChg = document.getElementById("sel-chg");
     if (selChg) {
       selChg.textContent = fmtPct(chg);
-      selChg.className = chg >= 0 ? "up" : "down";
+      selChg.className = dirClass(state.sel, chg);
     }
     if (isStock(inst)) {
       const v = stockMultiples(inst.s, q.last);
@@ -2433,12 +3016,12 @@
       const pnlEl = row.querySelector("[data-pos-pnl]");
       if (pnlEl) {
         pnlEl.textContent = fmtH(upnl);
-        pnlEl.className = "mono px " + (upnl >= 0 ? "up" : "down");
+        pnlEl.className = "mono px " + dirClass(s, upnl);
       }
       const pctEl = row.querySelector("[data-pos-pct]");
       if (pctEl) {
         pctEl.textContent = fmtPct(pct);
-        pctEl.className = "mono " + (upnl >= 0 ? "up" : "down");
+        pctEl.className = "mono " + dirClass(s, upnl);
       }
       const mtmEl = row.querySelector("[data-pos-mtm]");
       if (mtmEl) mtmEl.textContent = fmtP(mtm, BY[s]);
@@ -2484,7 +3067,7 @@
       } else {
         const upnl = posPnl(p);
         posLive.hidden = false;
-        posLive.innerHTML = `持倉盈虧額 <b class="${upnl >= 0 ? "up" : "down"}">${fmtH(upnl)}</b>`;
+        posLive.innerHTML = `持倉盈虧額 <b class="${dirClass(state.sel, upnl)}">${fmtH(upnl)}</b>`;
       }
     }
   }
@@ -2510,7 +3093,7 @@
       const pad = (n) => String(n).padStart(2, "0");
       return pad(p.month) + "/" + pad(p.day) + (state.tf === "1d" ? "" : " " + pad(p.hour) + ":" + pad(p.minute));
     };
-    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20" + (state.ind && state.ind.boll ? " · 布林帶(20,2)" : "") + (state.ind && state.ind.rsi ? " · RSI(14)" : "") + " · 綠升紅跌";
+    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20" + (state.ind && state.ind.boll ? " · 布林帶(20,2)" : "") + (state.ind && state.ind.rsi ? " · RSI(14)" : "") + " · " + (mktOf(BY[state.sel]) === "JP" ? "紅漲綠跌" : "綠升紅跌");
   }
   let chartRaf = 0;
   function scheduleChart() {
@@ -2563,9 +3146,9 @@
     const flagLabel = board === "JP" ? "日經指數" : board === "US" ? "標普500" : "恒生指數";
     const idxExtra = board === "US" ? "道指 " + Math.round(state.quotes.DJI.last).toLocaleString("en-HK") + " · 納指 " + Math.round(state.quotes.IXIC.last).toLocaleString("en-HK") : "";
     const rules = board === "JP"
-      ? "東證現貨（日本時間）：前場競價 08:00–09:00，前場 09:00–11:30，午休 11:30–12:30，後場 12:30–15:25，收市競價 15:25–15:30。日經指數期指夜盤 17:00–翌晨 06:00（16:45 起接受競價）。現貨個股夜盤不交易。綠升紅跌。帳戶以港元結算。"
+      ? "東證現貨（日本時間）：前場競價 08:00–09:00，前場 09:00–11:30，午休 11:30–12:30，後場 12:30–15:25，收市競價 15:25–15:30。日經指數期指夜盤 17:00–翌晨 06:00（16:45 起接受競價）。現貨個股夜盤不交易。日股紅漲綠跌。帳戶以港元結算。"
       : board === "US"
-        ? "紐約／納斯達克（美東，含夏令）：盤前 04:00–09:00，開市競價 09:00–09:30，日盤 09:30–15:50，收市競價 15:50–16:00，盤後 16:00–20:00。道瓊斯、標普500、納斯達克與個股同一時段。綠升紅跌。帳戶以港元結算。"
+        ? "紐約／納斯達克（美東，含夏令）：盤前 04:00–09:00，開市競價 09:00–09:30，日盤 09:30–15:50，收市競價 15:50–16:00，盤後 16:00–20:00。道瓊斯、標普500、納斯達克與個股同一時段。美股綠升紅跌。帳戶以港元結算。"
         : "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。離開再開，當根開／高／低／收同整段陰陽燭原封保留。";
     const quoteTag = inst.k === "crypto" ? "USD · 約 7.8 兌港元" : inst.m === "JP" ? "日圓 · 約 0.051 兌港元 · 可碎股" : inst.m === "US" ? (inst.k === "index" ? "指數 · 每點 HK$1" : "美元 · 約 7.8 兌港元") : (inst.k === "index" ? "指數 · 每點 HK$1" : "每手 " + inst.lot);
     const phaseLine = isHk(inst) ? sessionLabel(state.clock) : symbolLabel(state.clock, inst);
@@ -2590,7 +3173,7 @@
         </div>
         <div class="stats">
           <div class="stat"><label>模擬時間（${zoneName}）</label><div class="v mono" id="sim-clock">${esc(fmtTime(state.clock))}</div><small id="sim-phase">${esc(phaseText)}</small></div>
-          <div class="stat"><label>${flagLabel}</label><div class="v mono" id="hsi-last">${fq ? Math.round(fq.last).toLocaleString("en-HK") : "—"}</div><small id="hsi-chg" class="${fch >= 0 ? "up" : "down"}">${fq ? fmtPct(fch) : ""}</small><small class="muted" id="idx-sub">${esc(idxExtra)}</small></div>
+          <div class="stat"><label>${flagLabel}</label><div class="v mono" id="hsi-last">${fq ? Math.round(fq.last).toLocaleString("en-HK") : "—"}</div><small id="hsi-chg" class="${dirClass(flag, fch)}">${fq ? fmtPct(fch) : ""}</small><small class="muted" id="idx-sub">${esc(idxExtra)}</small></div>
           <div class="stat"><label>現金</label><div class="v mono" id="cash-v">${fmtH(state.cash)}</div></div>
           <div class="stat"><label>總資產</label><div class="v mono" id="eq-v">${fmtH(eq)}</div><small id="eq-pnl" class="${pnl >= 0 ? "up" : "down"}">${live.text}</small></div>
           <div class="stat"><label>任務 財富自由 HK$1億</label><div class="progress" aria-label="進度"><i style="width:${progress.toFixed(2)}%"></i></div><small class="muted">${progress.toFixed(3)}%</small></div>
@@ -2603,15 +3186,16 @@
           <input class="search" id="q" value="${esc(state.filter)}" placeholder="搜尋代號 / 名稱，如 0992、BTC" autocomplete="off" />
           <div class="list" id="list">${listed(board).map((i) => {
             const qq = state.quotes[i.s];
+            if (!qq) return "";
             const c = (qq.last - qq.prev) / qq.prev;
             const hide = n && !i.s.includes(n) && !i.n.includes(n);
-            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${haltedNow(i.s) ? "halted" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${haltedNow(i.s) ? " <small class=halt>停牌</small>" : ""}</span><span class="mono px ${c >= 0 ? "up" : "down"}">${fmtP(qq.last, i)}<br><small>${haltedNow(i.s) ? "停牌" : fmtPct(c)}</small></span></button>`;
+            return `<button type="button" class="row-item ${state.sel === i.s ? "active" : ""} ${haltedNow(i.s) ? "halted" : ""}" data-s="${i.s}" style="${hide ? "display:none" : ""}"><span class="mono sym">${i.s}</span><span class="name">${i.n}${haltedNow(i.s) ? " <small class=halt>停牌</small>" : ""}</span><span class="mono px ${dirClass(i.s, c)}">${fmtP(qq.last, i)}<br><small>${haltedNow(i.s) ? "停牌" : fmtPct(c)}</small></span></button>`;
           }).join("") || `<p class="muted">沒有符合的股份。</p>`}</div>
         </section>
         <section class="col">
           <div class="muted mono">${inst.s} · ${quoteTag}</div>
           <h2>${inst.n}</h2>
-          <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${chg >= 0 ? "up" : "down"}">${fmtPct(chg)}</span></div>
+          <div class="price-line"><span class="last mono" id="sel-last">${fmtP(q.last)}</span><span id="sel-chg" class="${dirClass(state.sel, chg)}">${fmtPct(chg)}</span></div>
           <p class="muted" id="sel-prev" data-prev-close>收市 ${fmtP(q.prev)}${auc ? " · 對盤 " + fmtP(iep) : ""}${halted ? " · 停牌" : ""}</p>
           <div class="ohlc" id="ohlc" data-ohlc>${(() => {
             const bar = series.at(-1);
@@ -2659,10 +3243,11 @@
           </div>
         </section>
         <section class="col">
+          ${coPanelHtml()}
           <h3>持倉${state.pos.length ? ` <span id="pos-total-pnl" class="mono ${totalPosPnl() >= 0 ? "up" : "down"}">${fmtH(totalPosPnl())}</span>` : ""}</h3>
           ${state.pos.length ? state.pos.map((p) => {
             const i = BY[p.s], mtm = markOf(p), upnl = posPnl(p), val = posMargin(p) + upnl, pct = posPct(p);
-            return `<div class="pos" data-pos="${p.s}"><div class="pos-top"><button type="button" class="pos-name" data-s="${p.s}">${i.n} <span class="muted mono">${p.s}</span></button><button type="button" class="ghost" data-close="${p.s}">平倉</button></div><div class="meta">${p.qty > 0 ? "好倉" : "淡倉"} ${fmtQ(Math.abs(p.qty))} · 均價 ${fmtP(p.avg, i)} · ${p.lev}x · 市價 <span data-pos-mtm>${fmtP(mtm, i)}</span></div><div class="pos-pnl"><div><div class="cap">盈虧額</div><div class="mono px ${upnl >= 0 ? "up" : "down"}" data-pos-pnl>${fmtH(upnl)}</div></div><div><div class="cap">回報</div><div class="mono ${upnl >= 0 ? "up" : "down"}" data-pos-pct>${fmtPct(pct)}</div></div><div><div class="cap">持倉市值</div><div class="mono muted" data-pos-val>${fmtH(val)}</div></div></div></div>`;
+            return `<div class="pos" data-pos="${p.s}"><div class="pos-top"><button type="button" class="pos-name" data-s="${p.s}">${i.n} <span class="muted mono">${p.s}</span></button><button type="button" class="ghost" data-close="${p.s}">平倉</button></div><div class="meta">${p.qty > 0 ? "好倉" : "淡倉"} ${fmtQ(Math.abs(p.qty))} · 均價 ${fmtP(p.avg, i)} · ${p.lev}x · 市價 <span data-pos-mtm>${fmtP(mtm, i)}</span></div><div class="pos-pnl"><div><div class="cap">盈虧額</div><div class="mono px ${dirClass(p.s, upnl)}" data-pos-pnl>${fmtH(upnl)}</div></div><div><div class="cap">回報</div><div class="mono ${dirClass(p.s, upnl)}" data-pos-pct>${fmtPct(pct)}</div></div><div><div class="cap">持倉市值</div><div class="mono muted" data-pos-val>${fmtH(val)}</div></div></div></div>`;
           }).join("") : `<p class="muted">空倉。本金 ${fmtH(START)}，目標 ${fmtH(GOAL)}。可用槓桿放大恆指迷你倉。</p>`}
           <h3 style="margin-top:18px">成交</h3>
           ${state.fills.slice(0, 10).map((f) => `<div class="fill"><span>${f.side === "buy" ? "買入" : "賣出"} ${f.s} ${fmtQ(f.qty)}</span><span class="mono">@ ${fmtP(f.price, BY[f.s])}</span></div>`).join("") || `<p class="muted">尚未落盤。</p>`}
@@ -2670,7 +3255,7 @@
       </main>
       <footer class="site">
         <span>apex-jade-onyx-harbor · 教學模擬，並非真實報價或投資建議</span>
-        <span>綠升紅跌 · Ask 買 / Bid 賣</span>
+        <span>港股美股綠升紅跌 · 日股紅漲綠跌 · Ask 買 / Bid 賣</span>
       </footer>
       ${state.won || state.busted ? `<div class="modal"><div class="box"><p class="kicker">${state.won ? "MISSION COMPLETE" : "MARGIN CALL"}</p><h2>${state.won ? "財富自由" : "戶口爆倉"}</h2><p class="muted">${state.won ? "總資產已達港幣一億。你可以重開戶口再挑戰一局。" : "保證金已耗盡。市場不會等你，再來一局。"}</p><p class="mono" style="font-size:22px;margin:12px 0">${fmtH(eq)}</p><button type="button" class="ghost" id="again">再來一局</button></div></div>` : ""}
       ${state.toast ? `<div class="toast" role="status">${esc(state.toast)}</div>` : ""}
@@ -2781,6 +3366,40 @@
         });
       };
     }
+    const coToggle = document.getElementById("co-toggle");
+    if (coToggle) coToggle.onclick = () => { state.coOpen = !state.coOpen; render(); };
+    const coName = document.getElementById("co-name");
+    if (coName) coName.oninput = (e) => { state.coForm.name = e.target.value; };
+    const coSector = document.getElementById("co-sector");
+    if (coSector) coSector.onchange = (e) => { state.coForm.sector = e.target.value; render(); };
+    const coBoard = document.getElementById("co-board");
+    if (coBoard) coBoard.onchange = (e) => { state.coForm.board = e.target.value; render(); };
+    $.querySelectorAll("[data-scale]").forEach((b) => {
+      b.onclick = () => { state.coForm.scale = b.dataset.scale; render(); };
+    });
+    $.querySelectorAll("[data-stake]").forEach((b) => {
+      b.onclick = () => { state.coForm.stake = b.dataset.stake; render(); };
+    });
+    const coGo = document.getElementById("co-go");
+    if (coGo) coGo.onclick = () => {
+      const err = foundCompany();
+      if (err) toast(err);
+      render();
+    };
+    $.querySelectorAll("[data-act]").forEach((b) => {
+      b.onclick = () => {
+        const err = manageCompany(b.dataset.co, b.dataset.act);
+        if (err) toast(err);
+        render();
+      };
+    });
+    $.querySelectorAll("[data-ipo]").forEach((b) => {
+      b.onclick = () => {
+        const err = subscribeIpo(b.dataset.ipo, +b.dataset.lots);
+        if (err) toast(err);
+        render();
+      };
+    });
   }
 
   render();
