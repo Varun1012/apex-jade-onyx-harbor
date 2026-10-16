@@ -2936,14 +2936,9 @@
   }
 
 
-  let viewAnchor = { clock: 0, at: 0 };
-  function viewClock() {
-    if (!state.speed) return state.clock;
-    if (viewAnchor.clock !== state.clock) viewAnchor = { clock: state.clock, at: performance.now() };
-    const gap = state.speed >= 60 ? 75 : Math.max(80, 900 / state.speed);
-    const mins = state.speed >= 60 ? 5 : 1;
-    const extra = Math.min(mins * 60000, (performance.now() - viewAnchor.at) * (mins * 60000) / gap);
-    return state.clock + extra;
+  let carryMin = 0;
+  function shownClock() {
+    return state.clock + (state.speed ? carryMin * 60000 : 0);
   }
   function finishPaint() {
     if (state.coDirty) {
@@ -2959,7 +2954,7 @@
       render();
       return;
     }
-    clockEl.textContent = fmtTime(viewClock());
+    clockEl.textContent = fmtTime(shownClock());
     const board = state.board || "HK";
     const phaseEl = document.getElementById("sim-phase");
     if (phaseEl) phaseEl.textContent = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
@@ -3156,33 +3151,45 @@
       if (cnv) drawChart(cnv, state.candles[state.sel][state.tf]);
     });
   }
-  let tickerTimer = null;
-  let stepping = false;
-  setInterval(() => {
-    const clockEl = document.getElementById("sim-clock");
-    if (!clockEl || !state.speed) return;
-    clockEl.textContent = fmtTime(viewClock());
-  }, 100);
-  function armTicker() {
-    if (tickerTimer) {
-      clearInterval(tickerTimer);
-      tickerTimer = null;
+  let clockRaf = 0;
+  let lastFrame = 0;
+  function simRate() {
+    if (state.speed >= 60) return 5 / 75;
+    if (!state.speed) return 0;
+    return 1 / Math.max(80, 900 / state.speed);
+  }
+  function onFrame(now) {
+    clockRaf = requestAnimationFrame(onFrame);
+    if (!state.speed || state.won || state.busted) {
+      carryMin = 0;
+      return;
     }
-    if (!state.speed) return;
-    const burst = state.speed >= 60 ? 5 : 1;
-    const gap = state.speed >= 60 ? 75 : Math.max(80, 900 / state.speed);
-    tickerTimer = setInterval(() => {
-      if (stepping || !state.speed) return;
-      stepping = true;
-      try {
-        for (let i = 0; i < burst; i++) {
-          if (!state.speed || state.won || state.busted) break;
-          step(i < burst - 1);
-        }
-      } finally {
-        stepping = false;
+    if (!lastFrame) lastFrame = now;
+    const dt = Math.min(50, Math.max(0, now - lastFrame));
+    lastFrame = now;
+    carryMin += dt * simRate();
+    let steps = 0;
+    while (carryMin >= 1 && steps < 4) {
+      const lastStep = carryMin < 2 || steps === 3;
+      step(lastStep ? false : true);
+      carryMin -= 1;
+      steps += 1;
+      if (!state.speed || state.won || state.busted) {
+        carryMin = 0;
+        break;
       }
-    }, gap);
+    }
+    if (carryMin >= 1) carryMin %= 1;
+    const clockEl = document.getElementById("sim-clock");
+    if (clockEl) clockEl.textContent = fmtTime(shownClock());
+  }
+  function armTicker() {
+    if (clockRaf) cancelAnimationFrame(clockRaf);
+    clockRaf = 0;
+    lastFrame = 0;
+    carryMin = 0;
+    if (!state.speed) return;
+    clockRaf = requestAnimationFrame(onFrame);
   }
 
   function render() {
