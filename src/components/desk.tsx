@@ -97,30 +97,60 @@ function mktNote(symbol: string) {
   return "港股綠升紅跌。";
 }
 
+let frameShown = 0;
+const frameListeners = new Set<(ms: number) => void>();
+
+function publishFrame(ms: number) {
+  frameShown = ms;
+  frameListeners.forEach((fn) => fn(ms));
+}
+
+function simMinutesPerMs(speed: number) {
+  if (speed >= 60) return 5 / 75;
+  if (speed <= 0) return 0;
+  return 1 / Math.max(80, 900 / speed);
+}
+
 function useTicker() {
   const tick = useDesk((s) => s.tick);
   const speed = useDesk((s) => s.speed);
   const won = useDesk((s) => s.won);
   const busted = useDesk((s) => s.busted);
   useEffect(() => {
-    if (speed === 0 || won || busted) return;
-    let busy = false;
-    const burst = speed >= 60 ? 5 : 1;
-    const gap = speed >= 60 ? 75 : Math.max(80, 900 / speed);
-    const id = window.setInterval(() => {
-      if (busy) return;
-      busy = true;
-      try {
-        for (let i = 0; i < burst; i++) {
-          tick();
-          const now = useDesk.getState();
-          if (now.won || now.busted || now.speed === 0) break;
+    const clockNow = () => useDesk.getState().clock;
+    if (speed === 0 || won || busted) {
+      publishFrame(clockNow());
+      return;
+    }
+    let raf = 0;
+    let last = performance.now();
+    let carry = 0;
+    const rate = simMinutesPerMs(speed);
+    const loop = (now: number) => {
+      const dt = Math.min(50, Math.max(0, now - last));
+      last = now;
+      carry += dt * rate;
+      let steps = 0;
+      while (carry >= 1 && steps < 4) {
+        tick();
+        carry -= 1;
+        steps += 1;
+        const st = useDesk.getState();
+        if (st.won || st.busted || st.speed === 0) {
+          carry = 0;
+          publishFrame(st.clock);
+          return;
         }
-      } finally {
-        busy = false;
       }
-    }, gap);
-    return () => window.clearInterval(id);
+      if (carry >= 1) carry %= 1;
+      publishFrame(clockNow() + carry * 60_000);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      publishFrame(clockNow());
+    };
   }, [tick, speed, won, busted]);
 }
 
@@ -233,23 +263,17 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
-  const speed = useDesk((s) => s.speed);
   const board = useDesk((s) => s.board ?? "HK");
-  const anchor = useRef({ clock, at: 0 });
-  if (anchor.current.clock !== clock || anchor.current.at === 0) {
-    anchor.current = { clock, at: typeof performance !== "undefined" ? performance.now() : 0 };
-  }
-  const [, setPulse] = useState(0);
+  const [shown, setShown] = useState(clock);
   useEffect(() => {
-    if (!speed) return;
-    const id = window.setInterval(() => setPulse((n) => n + 1), 100);
-    return () => window.clearInterval(id);
-  }, [speed]);
-  const gap = speed >= 60 ? 75 : Math.max(80, 900 / Math.max(speed, 1));
-  const mins = speed >= 60 ? 5 : 1;
-  const extra = !speed ? 0 : Math.min(mins * 60_000, ((typeof performance !== "undefined" ? performance.now() : 0) - anchor.current.at) * (mins * 60_000) / gap);
+    const onFrame = (ms: number) => setShown(ms);
+    frameListeners.add(onFrame);
+    onFrame(frameShown || clock);
+    return () => {
+      frameListeners.delete(onFrame);
+    };
+  }, [clock]);
   const zone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
-  const shown = clock + extra;
   const sub = board === "HK" ? sessionLabel(shown) : boardLabel(shown, board);
   const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
   return <Stat label={`模擬時間（${zoneName}）`} value={formatSimTime(shown, zone)} sub={<span>{sub}</span>} />;
