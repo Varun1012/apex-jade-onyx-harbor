@@ -983,21 +983,50 @@
         state.quotes[c.symbol] = { last, bid: rnd(last - t, inst), ask: rnd(last + t, inst), prev: last, o: last, h: last, l: last, iep: last };
       }
       if (state.candles && !state.candles[c.symbol]) state.candles[c.symbol] = seedCoBars(inst, state.quotes[c.symbol].last);
+      else if (state.candles && state.candles[c.symbol]) varyFlatCoVol(inst);
     }
   }
   function clearCompanies() {
     for (const c of state.companies || []) delete BY[c.symbol];
+  }
+  function coBarVol(inst, o, c, mins) {
+    const unit = inst.k === "index" ? 900 : inst.k === "crypto" ? 80 : (inst.lot || 1);
+    const span = Math.abs(c - o) / Math.max(c, 1e-9);
+    return Math.max(1, Math.round(unit * (8 + Math.random() * 36) * mins * (0.5 + span * 55)));
+  }
+  function coTickVol(inst, last) {
+    const unit = inst.k === "index" ? 900 : inst.k === "crypto" ? 80 : (inst.lot || 1);
+    const q = state.quotes[inst.s];
+    const prev = q && q.prev ? q.prev : last;
+    const chg = prev ? Math.abs(last - prev) / prev : 0;
+    return Math.max(1, Math.round(unit * (5 + Math.random() * 20) * (0.65 + chg * 70)));
+  }
+  function varyFlatCoVol(inst) {
+    const book = state.candles && state.candles[inst.s];
+    if (!book) return;
+    for (const tf of ["5m", "15m", "1d"]) {
+      const arr = book[tf];
+      if (!arr || arr.length < 4) continue;
+      const counts = {};
+      for (const bar of arr) counts[bar.v || 0] = (counts[bar.v || 0] || 0) + 1;
+      const top = Math.max(...Object.values(counts));
+      if (top / arr.length < 0.7 && Object.keys(counts).length > 2) continue;
+      const mins = tf === "1d" ? 330 : tf === "15m" ? 15 : 5;
+      for (const bar of arr) bar.v = coBarVol(inst, bar.o, bar.c, mins);
+    }
   }
   function seedCoBars(inst, last) {
     const mk = (tf, n, vol) => {
       const times = barTimes(state.clock, tf, n);
       const arr = [];
       let p = last;
+      const mins = tf === "1d" ? 330 : tf === "15m" ? 15 : 5;
       for (let k = times.length - 1; k >= 0; k--) {
         p = Math.max(inst.start * 0.45, p * (1 + gauss() * vol));
         const c = rnd(p, inst);
         const o = rnd(c * (1 + (Math.random() - 0.5) * vol), inst);
-        arr[k] = { t: times[k], o, h: Math.max(o, c), l: Math.min(o, c), c, v: 100 };
+        const w = Math.abs(c - o) * (0.4 + Math.random());
+        arr[k] = { t: times[k], o, h: Math.max(o, c) + w * 0.4, l: Math.min(o, c) - w * 0.4, c, v: coBarVol(inst, o, c, mins) };
       }
       arr[arr.length - 1].c = last;
       return arr;
@@ -1008,6 +1037,7 @@
     const inst = BY[sym];
     const book = state.candles[sym];
     if (!inst || !book) return;
+    const tickV = coTickVol(inst, last);
     for (const tf of ["5m", "15m", "1d"]) {
       const arr = book[tf];
       const cap = tf === "5m" ? 220 : tf === "15m" ? 140 : 90;
@@ -1018,10 +1048,10 @@
         c.c = last;
         c.h = Math.max(c.h, last, c.o);
         c.l = Math.min(c.l, last, c.o);
-        c.v = (c.v || 0) + 80;
+        c.v = (c.v || 0) + tickV;
       } else {
         const o = gap ? last : c ? c.c : last;
-        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: 80 });
+        arr.push({ t, o, h: Math.max(o, last), l: Math.min(o, last), c: last, v: tickV });
         if (arr.length > cap) arr.shift();
       }
     }
@@ -1626,7 +1656,7 @@
           pos: s.pos || [],
           fills: s.fills || [],
           sel: BY[s.sel] ? s.sel : "0700",
-          speed: [0, 1, 4, 12].includes(s.speed) ? s.speed : 1,
+          speed: [0, 1, 4, 12, 60].includes(s.speed) ? s.speed : 1,
           tf: ["5m", "15m", "1d"].includes(s.tf) ? s.tf : "15m",
           qty: String(s.qty || "100"),
           lev: s.lev || 1,
@@ -2426,8 +2456,10 @@
       else state.auction.pm = true;
       aucNews(kind);
       fillPendingAuc();
-      persist();
-      render();
+      if (!quiet) {
+        persist();
+        render();
+      }
       return;
     }
     if (!isSession(state.clock)) {
@@ -2446,10 +2478,12 @@
           }
         }
       }
-      persist();
-      const phaseNow = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
-      if (phaseNow !== prevPhase) render();
-      else finishPaint();
+      if (!quiet) {
+        persist();
+        const phaseNow = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
+        if (phaseNow !== prevPhase) render();
+        else finishPaint();
+      }
       return;
     }
     const shock = gauss() * 0.0018;
@@ -2565,9 +2599,13 @@
       state.busted = true;
       state.speed = 0;
     }
-    persist();
-    if (state.won || state.busted) render();
-    else finishPaint();
+    if (!quiet || state.won || state.busted) {
+      persist();
+      if (state.won || state.busted || !quiet) {
+        if (state.won || state.busted) render();
+        else finishPaint();
+      }
+    }
   }
 
   function place(side) {
@@ -3112,15 +3150,20 @@
       tickerTimer = null;
     }
     if (!state.speed) return;
+    const burst = state.speed >= 60 ? 5 : 1;
+    const gap = state.speed >= 60 ? 75 : Math.max(80, 900 / state.speed);
     tickerTimer = setInterval(() => {
       if (stepping || !state.speed) return;
       stepping = true;
       try {
-        step();
+        for (let i = 0; i < burst; i++) {
+          if (!state.speed || state.won || state.busted) break;
+          step(i < burst - 1);
+        }
       } finally {
         stepping = false;
       }
-    }, Math.max(80, 900 / state.speed));
+    }, gap);
   }
 
   function render() {
@@ -3166,7 +3209,7 @@
             <h1>${title}</h1>
           </div>
           <div class="controls">
-            <div class="bar">${[0, 1, 4, 12].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
+            <div class="bar speeds">${[0, 1, 4, 12, 60].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
             <button type="button" class="ghost" id="ticker" aria-pressed="${state.music}">${state.music ? "行情 開" : "行情"}</button>
             <button type="button" class="ghost" id="reset">重開戶口</button>
           </div>

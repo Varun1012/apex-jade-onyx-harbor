@@ -105,15 +105,21 @@ function useTicker() {
   useEffect(() => {
     if (speed === 0 || won || busted) return;
     let busy = false;
+    const burst = speed >= 60 ? 5 : 1;
+    const gap = speed >= 60 ? 75 : Math.max(80, 900 / speed);
     const id = window.setInterval(() => {
       if (busy) return;
       busy = true;
       try {
-        tick();
+        for (let i = 0; i < burst; i++) {
+          tick();
+          const now = useDesk.getState();
+          if (now.won || now.busted || now.speed === 0) break;
+        }
       } finally {
         busy = false;
       }
-    }, Math.max(80, 900 / speed));
+    }, gap);
     return () => window.clearInterval(id);
   }, [tick, speed, won, busted]);
 }
@@ -491,6 +497,7 @@ function SpeedControl({
     { s: 1, label: "1x" },
     { s: 4, label: "4x" },
     { s: 12, label: "12x" },
+    { s: 60, label: "60x" },
   ];
   return (
     <div className="flex rounded-md border border-border p-0.5">

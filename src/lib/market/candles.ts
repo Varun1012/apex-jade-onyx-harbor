@@ -296,7 +296,9 @@ export function applyForeignCandles(
     if (!inst || !q) continue;
     const c = q.last;
     const unit = volumeUnit(inst);
-    const tickV = Math.max(1, Math.round(unit * (4 + Math.random() * 12)));
+    const prevPx = q.prevClose || c;
+    const chg = prevPx ? Math.abs(c - prevPx) / prevPx : 0;
+    const tickV = Math.max(1, Math.round(unit * (5 + Math.random() * 20) * (0.65 + chg * 70)));
     let prev = book[symbol];
     if (!prev) {
       prev = seedSymbol(inst, c, barTimes(clock, "1d", 70), barTimes(clock, "15m", 64), barTimes(clock, "5m", 90));
@@ -307,6 +309,35 @@ export function applyForeignCandles(
     }
   }
   return book;
+}
+
+const TF_MINUTES: Record<Tf, number> = { "5m": 5, "15m": 15, "1d": 330 };
+
+/** Old custom listings stored one volume on every bar. Spread those once; leave varied books alone. */
+export function refreshFlatVolumes(book: CandleBook, symbols: string[]): boolean {
+  let changed = false;
+  for (const symbol of symbols) {
+    const inst = BY_SYMBOL[symbol];
+    const pack = book[symbol];
+    if (!inst || !pack) continue;
+    for (const tf of TFS) {
+      const list = pack[tf];
+      if (!list || list.length < 4) continue;
+      const counts = new Map<number, number>();
+      for (const c of list) counts.set(c.v || 0, (counts.get(c.v || 0) ?? 0) + 1);
+      let top = 0;
+      for (const n of counts.values()) if (n > top) top = n;
+      if (top / list.length < 0.7 && counts.size > 2) continue;
+      const mins = TF_MINUTES[tf];
+      const unit = volumeUnit(inst);
+      for (const c of list) {
+        const span = Math.abs(c.c - c.o) / Math.max(c.c, 1e-9);
+        c.v = Math.max(1, Math.round(unit * (8 + Math.random() * 36) * mins * (0.5 + span * 55)));
+      }
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 export function ensureCandles(
@@ -414,8 +445,9 @@ export type CompactCandleBook = Record<string, Partial<Record<Tf, number[][]>>>;
 
 export function compactCandleBook(book: CandleBook): CompactCandleBook {
   const out: CompactCandleBook = {};
-  for (const inst of UNIVERSE) {
-    const slot = book[inst.symbol];
+  const symbols = new Set<string>([...UNIVERSE.map((i) => i.symbol), ...Object.keys(book)]);
+  for (const symbol of symbols) {
+    const slot = book[symbol];
     if (!slot) continue;
     const row: Partial<Record<Tf, number[][]>> = {};
     for (const tf of TFS) {
@@ -423,7 +455,7 @@ export function compactCandleBook(book: CandleBook): CompactCandleBook {
       if (!list?.length) continue;
       row[tf] = list.map((c) => [c.t, c.o, c.h, c.l, c.c, c.v ?? 0]);
     }
-    out[inst.symbol] = row;
+    if (row["1d"] || row["15m"] || row["5m"]) out[symbol] = row;
   }
   return out;
 }
@@ -433,9 +465,10 @@ export function expandCandleBook(saved: unknown): CandleBook | undefined {
   const raw = saved as Record<string, unknown>;
   const book: CandleBook = {};
   let any = false;
-  for (const inst of UNIVERSE) {
-    const slot = raw[inst.symbol];
-    if (!slot || typeof slot !== "object") continue;
+  const symbols = new Set<string>([...UNIVERSE.map((i) => i.symbol), ...Object.keys(raw)]);
+  for (const symbol of symbols) {
+    const slot = raw[symbol];
+    if (!slot || typeof slot !== "object" || Array.isArray(slot)) continue;
     const rec = slot as Record<string, unknown>;
     const entry: Record<Tf, Candle[]> = { "5m": [], "15m": [], "1d": [] };
     for (const tf of TFS) {
@@ -449,7 +482,7 @@ export function expandCandleBook(saved: unknown): CandleBook | undefined {
       if (list.length) entry[tf] = list;
     }
     if (entry["1d"].length || entry["15m"].length || entry["5m"].length) {
-      book[inst.symbol] = entry;
+      book[symbol] = entry;
       any = true;
     }
   }

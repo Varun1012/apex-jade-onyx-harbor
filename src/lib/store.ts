@@ -50,6 +50,7 @@ import {
   repairQuotesFromCandles,
   seedCandles,
   applyForeignCandles,
+  refreshFlatVolumes,
   type CandleBook,
 } from "./market/candles";
 import { emptyFx, stepForeign, symbolPhase, type FxState } from "./market/boards";
@@ -106,7 +107,7 @@ export type AuctionOrder = {
   leverage: number;
 };
 
-export type Speed = 0 | 1 | 4 | 12;
+export type Speed = 0 | 1 | 4 | 12 | 60;
 
 export type Indicators = { boll: boolean; rsi: boolean };
 
@@ -595,6 +596,7 @@ export const useDesk = create<DeskState>()(
         let candlesFilled = candles;
         const missing = companies.filter((c) => !candlesFilled[c.symbol]).map((c) => c.symbol);
         if (missing.length) candlesFilled = applyForeignCandles(candlesFilled, quotes, st.clock, missing, true);
+        if (companies.length) refreshFlatVolumes(candlesFilled, companies.map((c) => c.symbol));
         const reports = { ...seedReports(st.clock), ...(st.reports ?? {}) };
         const dividends = {
           ...seedDividends(
