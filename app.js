@@ -529,11 +529,16 @@
     const us = usPhase(t);
     return jp !== "closed" || night === "night" || night === "open-input" || night === "close-input" || us !== "closed";
   }
+  function hkWeekend(t) {
+    const w = hkParts(t).weekday;
+    return w === 0 || w === 6;
+  }
   function anyBoardActive(t) { return hkActive(t) || foreignActive(t); }
   function nextBoardActive(from) {
     let t = from;
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 6000; i++) {
       t += 60000;
+      if (hkWeekend(t)) continue;
       if (anyBoardActive(t)) return t;
     }
     return t;
@@ -542,7 +547,7 @@
     let cur = ms, left = minutes;
     while (left > 0) {
       cur += 60000;
-      if (!anyBoardActive(cur)) cur = nextBoardActive(cur);
+      if (hkWeekend(cur) || !anyBoardActive(cur)) cur = nextBoardActive(cur);
       left -= 1;
     }
     return cur;
@@ -778,7 +783,7 @@
     const timeZone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
     const map = {};
     for (const part of new Intl.DateTimeFormat("en-US", {
-      timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+      timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
     }).formatToParts(new Date(ms))) {
       if (part.type !== "literal") map[part.type] = part.value;
     }
@@ -787,7 +792,7 @@
     let hour = +map.hour;
     if (hour === 24) hour = 0;
     const pad = (n) => String(n).padStart(2, "0");
-    return "週" + days[weekday] + " " + pad(hour) + ":" + pad(+map.minute);
+    return "週" + days[weekday] + " " + pad(hour) + ":" + pad(+map.minute) + ":" + pad(+map.second || 0);
   }
   function esc(s) {
     return String(s)
@@ -1656,7 +1661,7 @@
           pos: s.pos || [],
           fills: s.fills || [],
           sel: BY[s.sel] ? s.sel : "0700",
-          speed: [0, 1, 4, 12, 60].includes(s.speed) ? s.speed : 1,
+          speed: [1, 4, 12, 60].includes(s.speed) ? s.speed : 1,
           tf: ["5m", "15m", "1d"].includes(s.tf) ? s.tf : "15m",
           qty: String(s.qty || "100"),
           lev: s.lev || 1,
@@ -2931,6 +2936,15 @@
   }
 
 
+  let viewAnchor = { clock: 0, at: 0 };
+  function viewClock() {
+    if (!state.speed) return state.clock;
+    if (viewAnchor.clock !== state.clock) viewAnchor = { clock: state.clock, at: performance.now() };
+    const gap = state.speed >= 60 ? 75 : Math.max(80, 900 / state.speed);
+    const mins = state.speed >= 60 ? 5 : 1;
+    const extra = Math.min(mins * 60000, (performance.now() - viewAnchor.at) * (mins * 60000) / gap);
+    return state.clock + extra;
+  }
   function finishPaint() {
     if (state.coDirty) {
       state.coDirty = false;
@@ -2945,7 +2959,7 @@
       render();
       return;
     }
-    clockEl.textContent = fmtTime(state.clock);
+    clockEl.textContent = fmtTime(viewClock());
     const board = state.board || "HK";
     const phaseEl = document.getElementById("sim-phase");
     if (phaseEl) phaseEl.textContent = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
@@ -3144,6 +3158,11 @@
   }
   let tickerTimer = null;
   let stepping = false;
+  setInterval(() => {
+    const clockEl = document.getElementById("sim-clock");
+    if (!clockEl || !state.speed) return;
+    clockEl.textContent = fmtTime(viewClock());
+  }, 100);
   function armTicker() {
     if (tickerTimer) {
       clearInterval(tickerTimer);

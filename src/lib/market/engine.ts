@@ -196,7 +196,8 @@ export function advanceClock(t: number, minutes: number): number {
   let left = minutes;
   while (left > 0) {
     cur += 60_000;
-    if (!anyBoardActive(cur)) cur = nextBoardActive(cur);
+    const day = hkParts(cur).weekday;
+    if (day === 0 || day === 6 || !anyBoardActive(cur)) cur = nextBoardActive(cur);
     left -= 1;
   }
   return cur;

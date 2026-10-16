@@ -293,8 +293,10 @@ export function anyBoardActive(t: number): boolean {
 
 export function nextBoardActive(from: number): number {
   let t = from;
-  for (let i = 0; i < 4000; i++) {
+  for (let i = 0; i < 6000; i++) {
     t += 60_000;
+    const day = hkParts(t).weekday;
+    if (day === 0 || day === 6) continue;
     if (anyBoardActive(t)) return t;
   }
   return t;

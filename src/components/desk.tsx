@@ -233,11 +233,26 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
+  const speed = useDesk((s) => s.speed);
   const board = useDesk((s) => s.board ?? "HK");
+  const anchor = useRef({ clock, at: 0 });
+  if (anchor.current.clock !== clock || anchor.current.at === 0) {
+    anchor.current = { clock, at: typeof performance !== "undefined" ? performance.now() : 0 };
+  }
+  const [, setPulse] = useState(0);
+  useEffect(() => {
+    if (!speed) return;
+    const id = window.setInterval(() => setPulse((n) => n + 1), 100);
+    return () => window.clearInterval(id);
+  }, [speed]);
+  const gap = speed >= 60 ? 75 : Math.max(80, 900 / Math.max(speed, 1));
+  const mins = speed >= 60 ? 5 : 1;
+  const extra = !speed ? 0 : Math.min(mins * 60_000, ((typeof performance !== "undefined" ? performance.now() : 0) - anchor.current.at) * (mins * 60_000) / gap);
   const zone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
-  const sub = board === "HK" ? sessionLabel(clock) : boardLabel(clock, board);
+  const shown = clock + extra;
+  const sub = board === "HK" ? sessionLabel(shown) : boardLabel(shown, board);
   const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
-  return <Stat label={`模擬時間（${zoneName}）`} value={formatSimTime(clock, zone)} sub={<span>{sub}</span>} />;
+  return <Stat label={`模擬時間（${zoneName}）`} value={formatSimTime(shown, zone)} sub={<span>{sub}</span>} />;
 }
 
 function HsiStat() {

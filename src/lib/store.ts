@@ -1206,8 +1206,11 @@ export const useDesk = create<DeskState>()(
         ipos: s.ipos,
         issuerSeq: s.issuerSeq,
         ipoDay: s.ipoDay,
-        speed: 0 as Speed,
+        speed: 1 as Speed,
       }),
+      onRehydrateStorage: () => () => {
+        useDesk.setState({ speed: 1 });
+      },
       storage: createJSONStorage(() => ({
         getItem: (name) => {
           try {
