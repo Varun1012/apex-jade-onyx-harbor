@@ -90,7 +90,6 @@ export function formatSimTime(ms: number, timeZone = "Asia/Hong_Kong"): string {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hourCycle: "h23",
   }).formatToParts(new Date(ms))) {
     if (p.type !== "literal") map[p.type] = p.value;
@@ -99,7 +98,7 @@ export function formatSimTime(ms: number, timeZone = "Asia/Hong_Kong"): string {
   const days = ["日", "一", "二", "三", "四", "五", "六"];
   let hour = Number(map.hour);
   if (hour === 24) hour = 0;
-  return `週${days[weekday]} ${pad(hour)}:${pad(Number(map.minute))}:${pad(Number(map.second))}`;
+  return `週${days[weekday]} ${pad(hour)}:${pad(Number(map.minute))}`;
 }
 
 export function formatVol(n: number): string {

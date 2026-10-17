@@ -758,7 +758,7 @@
     const timeZone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
     const map = {};
     for (const part of new Intl.DateTimeFormat("en-US", {
-      timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
     }).formatToParts(new Date(ms))) {
       if (part.type !== "literal") map[part.type] = part.value;
     }
@@ -767,7 +767,7 @@
     let hour = +map.hour;
     if (hour === 24) hour = 0;
     const pad = (n) => String(n).padStart(2, "0");
-    return "週" + days[weekday] + " " + pad(hour) + ":" + pad(+map.minute) + ":" + pad(+map.second || 0);
+    return "週" + days[weekday] + " " + pad(hour) + ":" + pad(+map.minute);
   }
   function esc(s) {
     return String(s)
@@ -2947,9 +2947,23 @@
   }
 
 
-  let carryMin = 0;
-  function shownClock() {
-    return state.clock + (state.speed ? carryMin * 60000 : 0);
+  let tickerTimer = null;
+  let stepping = false;
+  function armTicker() {
+    if (tickerTimer) {
+      clearInterval(tickerTimer);
+      tickerTimer = null;
+    }
+    if (!state.speed) return;
+    tickerTimer = setInterval(() => {
+      if (stepping || !state.speed) return;
+      stepping = true;
+      try {
+        step();
+      } finally {
+        stepping = false;
+      }
+    }, Math.max(80, 900 / state.speed));
   }
   function finishPaint() {
     if (state.coDirty) {
@@ -2965,7 +2979,7 @@
       render();
       return;
     }
-    clockEl.textContent = fmtTime(shownClock());
+    clockEl.textContent = fmtTime(state.clock);
     const board = state.board || "HK";
     const phaseEl = document.getElementById("sim-phase");
     if (phaseEl) phaseEl.textContent = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
@@ -3162,46 +3176,6 @@
       if (cnv) drawChart(cnv, state.candles[state.sel][state.tf]);
     });
   }
-  let clockRaf = 0;
-  let lastFrame = 0;
-  function simRate() {
-    if (!state.speed) return 0;
-    return state.speed / 60000;
-  }
-  function onFrame(now) {
-    clockRaf = requestAnimationFrame(onFrame);
-    if (!state.speed || state.won || state.busted) {
-      carryMin = 0;
-      return;
-    }
-    if (!lastFrame) lastFrame = now;
-    const dt = Math.min(50, Math.max(0, now - lastFrame));
-    lastFrame = now;
-    carryMin += dt * simRate();
-    let steps = 0;
-    while (carryMin >= 1 && steps < 4) {
-      const lastStep = carryMin < 2 || steps === 3;
-      step(lastStep ? false : true);
-      carryMin -= 1;
-      steps += 1;
-      if (!state.speed || state.won || state.busted) {
-        carryMin = 0;
-        break;
-      }
-    }
-    if (carryMin >= 1) carryMin %= 1;
-    const clockEl = document.getElementById("sim-clock");
-    if (clockEl) clockEl.textContent = fmtTime(shownClock());
-  }
-  function armTicker() {
-    if (clockRaf) cancelAnimationFrame(clockRaf);
-    clockRaf = 0;
-    lastFrame = 0;
-    carryMin = 0;
-    if (!state.speed) return;
-    clockRaf = requestAnimationFrame(onFrame);
-  }
-
   function render() {
     const board = state.board || "HK";
     const inst = BY[state.sel], q = state.quotes[state.sel], live = dayPnlLabel();
@@ -3220,11 +3194,11 @@
     const progress = Math.min(100, (eq / GOAL) * 100);
     const n = state.filter.trim();
     const zoneName = "香港";
-    const phaseText = sessionLabel(shownClock());
+    const phaseText = sessionLabel(state.clock);
     const title = "港股模擬盤";
     const flagLabel = "恒生指數";
     const idxExtra = "";
-    const rules = "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。週末同休市直接跳到下一個開市。時間按真實秒數走，1 倍是一秒對一秒。";
+    const rules = "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。週末同休市直接跳到下一個開市。";
     const quoteTag = inst.k === "crypto" ? "USD · 約 7.8 兌港元" : inst.m === "JP" ? "日圓 · 約 0.051 兌港元 · 可碎股" : inst.m === "US" ? (inst.k === "index" ? "指數 · 每點 HK$1" : "美元 · 約 7.8 兌港元") : (inst.k === "index" ? "指數 · 每點 HK$1" : "每手 " + inst.lot);
     const phaseLine = isHk(inst) ? sessionLabel(state.clock) : symbolLabel(state.clock, inst);
     const $ = document.getElementById("app");

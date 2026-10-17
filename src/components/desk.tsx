@@ -97,59 +97,24 @@ function mktNote(symbol: string) {
   return "港股綠升紅跌。";
 }
 
-let frameShown = 0;
-const frameListeners = new Set<(ms: number) => void>();
-
-function publishFrame(ms: number) {
-  frameShown = ms;
-  frameListeners.forEach((fn) => fn(ms));
-}
-
-function simMinutesPerMs(speed: number) {
-  if (speed <= 0) return 0;
-  return speed / 60_000;
-}
-
 function useTicker() {
   const tick = useDesk((s) => s.tick);
   const speed = useDesk((s) => s.speed);
   const won = useDesk((s) => s.won);
   const busted = useDesk((s) => s.busted);
   useEffect(() => {
-    const clockNow = () => useDesk.getState().clock;
-    if (speed === 0 || won || busted) {
-      publishFrame(clockNow());
-      return;
-    }
-    let raf = 0;
-    let last = performance.now();
-    let carry = 0;
-    const rate = simMinutesPerMs(speed);
-    const loop = (now: number) => {
-      const dt = Math.min(50, Math.max(0, now - last));
-      last = now;
-      carry += dt * rate;
-      let steps = 0;
-      while (carry >= 1 && steps < 4) {
+    if (speed === 0 || won || busted) return;
+    let busy = false;
+    const id = window.setInterval(() => {
+      if (busy) return;
+      busy = true;
+      try {
         tick();
-        carry -= 1;
-        steps += 1;
-        const st = useDesk.getState();
-        if (st.won || st.busted || st.speed === 0) {
-          carry = 0;
-          publishFrame(st.clock);
-          return;
-        }
+      } finally {
+        busy = false;
       }
-      if (carry >= 1) carry %= 1;
-      publishFrame(clockNow() + carry * 60_000);
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(raf);
-      publishFrame(clockNow());
-    };
+    }, Math.max(80, 900 / speed));
+    return () => window.clearInterval(id);
   }, [tick, speed, won, busted]);
 }
 
@@ -239,20 +204,11 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
-  const [shown, setShown] = useState(clock);
-  useEffect(() => {
-    const onFrame = (ms: number) => setShown(ms);
-    frameListeners.add(onFrame);
-    onFrame(frameShown || clock);
-    return () => {
-      frameListeners.delete(onFrame);
-    };
-  }, [clock]);
   return (
     <Stat
       label="模擬時間（香港）"
-      value={formatSimTime(shown, "Asia/Hong_Kong")}
-      sub={<span>{sessionLabel(shown)}</span>}
+      value={formatSimTime(clock)}
+      sub={<span>{sessionLabel(clock)}</span>}
     />
   );
 }
