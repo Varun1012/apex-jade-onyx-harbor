@@ -2440,7 +2440,7 @@
     if (us.hour === 16 && us.minute === 0) printFx(usSyms, false);
     fillForeignPending();
   }
-  function step() {
+  function step(quiet) {
     if (!state.speed || state.won || state.busted) return;
     const prevPhase = (state.board || "HK") === "HK" ? sessionPhase(state.clock) : boardLabel(state.clock, state.board || "HK");
     state.clock = advanceClock(state.clock, 1);
