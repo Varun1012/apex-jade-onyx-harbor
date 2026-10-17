@@ -64,15 +64,11 @@ jobs:
           grep -q "開市競價期間同步通知" app.js
           grep -q "dayEq" app.js
           grep -q "data-ohlc" app.js
-          grep -q "日經指數" app.js
-          grep -q "標普500" app.js
-          grep -q "道瓊斯" app.js
-          grep -q "納斯達克" app.js
-          grep -q "NVDA" app.js
-          grep -q "7203" app.js
-          grep -q "data-board" app.js
           grep -q "開公司" app.js
-          grep -q "紅漲綠跌" app.js
+          if grep -E -q "日經指數|標普500|道瓊斯|納斯達克|紅漲綠跌|data-board|>日股<|>美股<|60x" app.js; then
+            echo "foreign boards and 60x should stay removed"
+            exit 1
+          fi
           if grep -E -q "data-card|dealHand|出牌" app.js; then
             echo "card feature should stay removed"
             exit 1

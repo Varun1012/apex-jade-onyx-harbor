@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { CandleChart } from "@/components/candle-chart";
 import { Sparkline } from "@/components/sparkline";
 import { formatHkd, formatPct, formatPrice, formatQty, formatSimTime } from "@/lib/format";
-import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, listedInstruments, type Board } from "@/lib/market/universe";
+import { BY_SYMBOL, GOAL_EQUITY, STARTING_CASH, listedInstruments } from "@/lib/market/universe";
 import { advise } from "@/lib/market/ta";
 import type { Tf } from "@/lib/market/candles";
 import { createAmbient, type AmbientHandle } from "@/lib/ambient";
@@ -28,7 +28,7 @@ import {
   usesHkAuction,
 } from "@/lib/market/engine";
 import { formatDayKey, formatDps, formatMultiple, formatYi, haltResumeLabel, isHalted, nextResults, stockMultiples } from "@/lib/market/corporate";
-import { boardLabel, boardRules, symbolLabel, symbolPhase } from "@/lib/market/boards";
+import { boardRules, symbolLabel, symbolPhase } from "@/lib/market/boards";
 import {
   brief,
   controls,
@@ -106,9 +106,8 @@ function publishFrame(ms: number) {
 }
 
 function simMinutesPerMs(speed: number) {
-  if (speed >= 60) return 5 / 75;
   if (speed <= 0) return 0;
-  return 1 / Math.max(80, 900 / speed);
+  return speed / 60_000;
 }
 
 function useTicker() {
@@ -205,38 +204,15 @@ function HeaderBar() {
   const won = useDesk((s) => s.won);
   const busted = useDesk((s) => s.busted);
   const reset = useDesk((s) => s.reset);
-  const board = useDesk((s) => s.board ?? "HK");
-  const setBoard = useDesk((s) => s.setBoard);
-  const boards: { id: Board; label: string }[] = [
-    { id: "HK", label: "港股" },
-    { id: "JP", label: "日股" },
-    { id: "US", label: "美股" },
-  ];
-  const title = board === "JP" ? "日股模擬盤" : board === "US" ? "美股模擬盤" : "港股模擬盤";
 
   return (
     <header className="border-b border-border px-4 py-3 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="mb-2 flex rounded-md border border-border p-0.5">
-            {boards.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => setBoard(b.id)}
-                className={cn(
-                  "h-8 rounded-sm px-3 text-xs",
-                  board === b.id ? "bg-secondary text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
           <p className="text-[11px] font-medium tracking-[0.18em] text-muted-foreground uppercase">
             PAPER MARKETS
           </p>
-          <h1 className="font-medium text-xl tracking-tight">{title}</h1>
+          <h1 className="font-medium text-xl tracking-tight">港股模擬盤</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <SpeedControl speed={speed} onChange={setSpeed} disabled={won || busted} />
@@ -255,7 +231,7 @@ function HeaderBar() {
       </div>
       <div className="mt-4">
         <GoalBar />
-        <p className="mt-1.5 text-[11px] text-muted-foreground">{boardRules(board)}</p>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">{boardRules("HK")}</p>
       </div>
     </header>
   );
@@ -263,7 +239,6 @@ function HeaderBar() {
 
 function ClockStat() {
   const clock = useDesk((s) => s.clock);
-  const board = useDesk((s) => s.board ?? "HK");
   const [shown, setShown] = useState(clock);
   useEffect(() => {
     const onFrame = (ms: number) => setShown(ms);
@@ -273,50 +248,24 @@ function ClockStat() {
       frameListeners.delete(onFrame);
     };
   }, [clock]);
-  const zone = board === "JP" ? "Asia/Tokyo" : board === "US" ? "America/New_York" : "Asia/Hong_Kong";
-  const sub = board === "HK" ? sessionLabel(shown) : boardLabel(shown, board);
-  const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
-  return <Stat label={`模擬時間（${zoneName}）`} value={formatSimTime(shown, zone)} sub={<span>{sub}</span>} />;
+  return (
+    <Stat
+      label="模擬時間（香港）"
+      value={formatSimTime(shown, "Asia/Hong_Kong")}
+      sub={<span>{sessionLabel(shown)}</span>}
+    />
+  );
 }
 
 function HsiStat() {
-  const board = useDesk((s) => s.board ?? "HK");
   const hsi = useDesk((s) => s.quotes.HSI);
-  const n225 = useDesk((s) => s.quotes.N225);
-  const spx = useDesk((s) => s.quotes.SPX);
-  const dji = useDesk((s) => s.quotes.DJI);
-  const ixic = useDesk((s) => s.quotes.IXIC);
-  if (board === "US") {
-    const chg = spx && spx.prevClose ? (spx.last - spx.prevClose) / spx.prevClose : 0;
-    return (
-      <Stat
-        label="標普500"
-        value={spx ? Math.round(spx.last).toLocaleString("en-HK") : "—"}
-        sub={
-          <span className="text-muted-foreground">
-            道指 {dji ? Math.round(dji.last).toLocaleString("en-HK") : "—"}
-            {" · "}
-            納指 {ixic ? Math.round(ixic.last).toLocaleString("en-HK") : "—"}
-            {spx ? (
-              <>
-                {" "}
-                <Signed n={chg}>{formatPct(chg)}</Signed>
-              </>
-            ) : null}
-          </span>
-        }
-      />
-    );
-  }
-  const q = board === "JP" ? n225 : hsi;
-  const label = board === "JP" ? "日經指數" : "恒生指數";
-  if (!q) return <Stat label={label} value="—" />;
-  const chg = (q.last - q.prevClose) / q.prevClose;
+  if (!hsi) return <Stat label="恒生指數" value="—" />;
+  const chg = (hsi.last - hsi.prevClose) / hsi.prevClose;
   return (
     <Stat
-      label={label}
-      value={Math.round(q.last).toLocaleString("en-HK")}
-      sub={<Signed n={chg} redUp={board === "JP"}>{formatPct(chg)}</Signed>}
+      label="恒生指數"
+      value={Math.round(hsi.last).toLocaleString("en-HK")}
+      sub={<Signed n={chg}>{formatPct(chg)}</Signed>}
     />
   );
 }
@@ -536,7 +485,6 @@ function SpeedControl({
     { s: 1, label: "1x" },
     { s: 4, label: "4x" },
     { s: 12, label: "12x" },
-    { s: 60, label: "60x" },
   ];
   return (
     <div className="flex rounded-md border border-border p-0.5">
@@ -913,7 +861,7 @@ function FinReport({ symbol }: { symbol: string }) {
   if (inst.custom) {
     return (
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-        這是自訂或新上市公司。持股達三成可在「公司」調整人力、財務、營運、研發，並決定派息。日股報價紅漲綠跌。
+        這是自訂或新上市公司。持股達三成可在「公司」調整人力、財務、營運、研發，並決定派息。報價綠升紅跌。
       </p>
     );
   }
@@ -1232,12 +1180,11 @@ function CompanyPanel() {
   const [open, setOpen] = useState(companies.every((c) => c.origin !== "player"));
   const [name, setName] = useState("");
   const [sector, setSector] = useState<(typeof SECTORS)[number]>("科技");
-  const [board, setB] = useState<Board>("HK");
   const [scale, setScale] = useState<Scale>("micro");
   const [stake, setStake] = useState(0.51);
   const [err, setErr] = useState<string | null>(null);
   const preview = planFound(
-    { name: name.trim().length >= 2 ? name : "草案", sector, board, scale, stake },
+    { name: name.trim().length >= 2 ? name : "草案", sector, board: "HK", scale, stake },
     seq,
     new Set(companies.map((c) => c.symbol)),
   );
@@ -1247,7 +1194,7 @@ function CompanyPanel() {
     null;
 
   const submit = () => {
-    const msg = foundCompany({ name, sector, board, scale, stake });
+    const msg = foundCompany({ name, sector, board: "HK", scale, stake });
     setErr(msg);
     if (!msg) setName("");
   };
@@ -1300,26 +1247,15 @@ function CompanyPanel() {
             className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
             maxLength={16}
           />
-          <div className="grid grid-cols-2 gap-2">
-            <select
-              value={sector}
-              onChange={(e) => setSector(e.target.value as (typeof SECTORS)[number])}
-              className="h-10 rounded-md border border-border bg-background px-2 text-sm"
-            >
-              {SECTORS.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-            <select
-              value={board}
-              onChange={(e) => setB(e.target.value as Board)}
-              className="h-10 rounded-md border border-border bg-background px-2 text-sm"
-            >
-              <option value="HK">港股</option>
-              <option value="JP">日股</option>
-              <option value="US">美股</option>
-            </select>
-          </div>
+          <select
+            value={sector}
+            onChange={(e) => setSector(e.target.value as (typeof SECTORS)[number])}
+            className="h-10 w-full rounded-md border border-border bg-background px-2 text-sm"
+          >
+            {SECTORS.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
           <div className="grid grid-cols-3 gap-1">
             {(
               [

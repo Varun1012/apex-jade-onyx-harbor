@@ -550,8 +550,7 @@ function heatRoll() {
 }
 
 export function rollNpcIpo(clock: number, seq: number, taken: Set<string>): { ipo: IpoOffer; seq: number } | null {
-  const boards: Board[] = ["HK", "JP", "US"];
-  const board = boards[Math.floor(Math.random() * boards.length)]!;
+  const board: Board = "HK";
   const pool = NAMES[board].filter((n) => ![...taken].some((s) => s === n));
   const usedNames = pool.length ? pool : NAMES[board];
   const name = usedNames[Math.floor(Math.random() * usedNames.length)]!;

@@ -39,32 +39,7 @@
     { s: "2899", n: "紫金礦業", start: 33.96, vol: 0.014, beta: 1.18, pv: 1, lev: 5, lot: 2000 },
     { s: "1024", n: "快手", start: 52.4, vol: 0.015, beta: 1.45, pv: 1, lev: 5, lot: 100 },
     { s: "9961", n: "攜程集團", start: 478, vol: 0.0105, beta: 1.18, pv: 1, lev: 5, lot: 50 },
-    { s: "9888", n: "百度集團", start: 91.2, vol: 0.011, beta: 1.2, pv: 1, lev: 5, lot: 50 },
-    { s: "N225", n: "日經指數", k: "index", start: 68900, vol: 0.011, beta: 1, pv: 1, lev: 10, lot: 1, m: "JP" },
-    { s: "7203", n: "豐田汽車", k: "stock", start: 3180, vol: 0.009, beta: 0.9, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "8306", n: "三菱UFJ", k: "stock", start: 2140, vol: 0.008, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "9984", n: "軟銀集團", k: "stock", start: 11280, vol: 0.016, beta: 1.35, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "6758", n: "索尼集團", k: "stock", start: 3780, vol: 0.011, beta: 1.1, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "8035", n: "東京電子", k: "stock", start: 28600, vol: 0.018, beta: 1.4, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "6501", n: "日立", k: "stock", start: 4280, vol: 0.01, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "9983", n: "迅銷", k: "stock", start: 52400, vol: 0.012, beta: 0.85, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "8316", n: "三井住友FG", k: "stock", start: 4180, vol: 0.008, beta: 1.05, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "7974", n: "任天堂", k: "stock", start: 11850, vol: 0.013, beta: 0.8, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "6861", n: "基恩士", k: "stock", start: 69800, vol: 0.012, beta: 1.15, pv: 0.051, lev: 5, lot: 100, m: "JP" },
-    { s: "DJI", n: "道瓊斯指數", k: "index", start: 46500, vol: 0.008, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
-    { s: "SPX", n: "標普500", k: "index", start: 6200, vol: 0.009, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
-    { s: "IXIC", n: "納斯達克綜合", k: "index", start: 20500, vol: 0.012, beta: 1, pv: 1, lev: 10, lot: 1, m: "US" },
-    { s: "NVDA", n: "輝達", k: "stock", start: 228.38, vol: 0.02, beta: 1.45, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "AAPL", n: "蘋果", k: "stock", start: 333, vol: 0.012, beta: 1.15, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "MSFT", n: "微軟", k: "stock", start: 513, vol: 0.011, beta: 1.1, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "GOOGL", n: "Alphabet", k: "stock", start: 344, vol: 0.013, beta: 1.15, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "AMZN", n: "亞馬遜", k: "stock", start: 249, vol: 0.014, beta: 1.2, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "META", n: "Meta", k: "stock", start: 725, vol: 0.016, beta: 1.25, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "AVGO", n: "博通", k: "stock", start: 351, vol: 0.018, beta: 1.35, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "TSLA", n: "特斯拉", k: "stock", start: 355, vol: 0.022, beta: 1.5, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "JPM", n: "摩根大通", k: "stock", start: 331, vol: 0.009, beta: 1.05, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "LLY", n: "禮來", k: "stock", start: 1157, vol: 0.013, beta: 0.75, pv: 7.8, lev: 5, lot: 1, m: "US" },
-    { s: "XOM", n: "埃克森美孚", k: "stock", start: 163, vol: 0.01, beta: 0.7, pv: 7.8, lev: 5, lot: 1, m: "US" },
+    { s: "9888", n: "百度集團", start: 91.2, vol: 0.011, beta: 1.2, pv: 1, lev: 5, lot: 50 }
   ];
   const BY = Object.fromEntries(UNIVERSE.map((i) => [i.s, i]));
   function mktOf(i) { return (i && i.m) || "HK"; }
@@ -533,7 +508,7 @@
     const w = hkParts(t).weekday;
     return w === 0 || w === 6;
   }
-  function anyBoardActive(t) { return hkActive(t) || foreignActive(t); }
+  function anyBoardActive(t) { return hkActive(t); }
   function nextBoardActive(from) {
     let t = from;
     for (let i = 0; i < 6000; i++) {
@@ -1311,8 +1286,7 @@
     if (!state.seq) state.seq = 1;
     const dk = dayKey(state.clock);
     if (state.ipoDay !== dk && !state.ipos.length && state.companies.length < 10 && Math.random() < 0.34) {
-      const boards = ["HK", "JP", "US"];
-      const board = boards[Math.floor(Math.random() * 3)];
+      const board = "HK";
       const names = CO_NAMES[board];
       const name = names[Math.floor(Math.random() * names.length)];
       const sector = SECTORS[Math.floor(Math.random() * SECTORS.length)];
@@ -1443,7 +1417,7 @@
       <input id="co-name" maxlength="16" placeholder="公司名稱" value="${esc(f.name)}" />
       <div class="row2">
         <select id="co-sector">${SECTORS.map((s) => `<option ${f.sector === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-        <select id="co-board"><option value="HK" ${f.board === "HK" ? "selected" : ""}>港股</option><option value="JP" ${f.board === "JP" ? "selected" : ""}>日股</option><option value="US" ${f.board === "US" ? "selected" : ""}>美股</option></select>
+        <input id="co-board" type="hidden" value="HK" />
       </div>
       <div class="acts">${[["micro", "微型"], ["std", "標準"], ["large", "大型"]].map(([id, lab]) => `<button type="button" data-scale="${id}" class="${f.scale === id ? "on" : ""}">${lab}</button>`).join("")}</div>
       <div class="acts"><button type="button" data-stake="0.51" class="${+f.stake >= 0.5 ? "on" : ""}">老闆 51%</button><button type="button" data-stake="0.3" class="${+f.stake < 0.5 ? "on" : ""}">大股東 30%</button></div>
@@ -1460,7 +1434,7 @@
       candles: null,
       pos: [],
       fills: [],
-      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。港股美股綠升紅跌，日股紅漲綠跌。",
+      news: "模擬開市。競價只可掛對盤；持續交易買入以賣出價成交。港股綠升紅跌。",
       sel: "0700",
       speed: 1,
       tf: "15m",
@@ -1661,7 +1635,7 @@
           pos: s.pos || [],
           fills: s.fills || [],
           sel: BY[s.sel] ? s.sel : "0700",
-          speed: [1, 4, 12, 60].includes(s.speed) ? s.speed : 1,
+          speed: [1, 4, 12].includes(s.speed) ? s.speed : 1,
           tf: ["5m", "15m", "1d"].includes(s.tf) ? s.tf : "15m",
           qty: String(s.qty || "100"),
           lev: s.lev || 1,
@@ -1682,7 +1656,7 @@
             boll: !!(s.ind && s.ind.boll),
             rsi: !!(s.ind && s.ind.rsi),
           },
-          board: s.board === "JP" || s.board === "US" ? s.board : "HK",
+          board: "HK",
           fx: s.fx && typeof s.fx === "object" ? s.fx : null,
           companies: Array.isArray(s.companies) ? s.companies.map(normCo).filter(Boolean) : [],
           ipos: Array.isArray(s.ipos) ? s.ipos.map(normIpo).filter(Boolean) : [],
@@ -1696,6 +1670,43 @@
       }
     }
   } catch (_) {}
+
+  function releaseForeignBooks() {
+    const pvOfSym = {
+      N225: 1, "7203": 0.051, "8306": 0.051, "9984": 0.051, "6758": 0.051, "8035": 0.051,
+      "6501": 0.051, "9983": 0.051, "8316": 0.051, "7974": 0.051, "6861": 0.051,
+      DJI: 1, SPX: 1, IXIC: 1, NVDA: 7.8, AAPL: 7.8, MSFT: 7.8, GOOGL: 7.8, AMZN: 7.8,
+      META: 7.8, AVGO: 7.8, TSLA: 7.8, JPM: 7.8, LLY: 7.8, XOM: 7.8,
+    };
+    state.board = "HK";
+    if (state.speed === 60) state.speed = 12;
+    const dropCo = new Set((state.companies || []).filter((c) => c.board === "JP" || c.board === "US").map((c) => c.symbol));
+    const kept = [];
+    for (const p of state.pos || []) {
+      const foreign = dropCo.has(p.s) || Object.prototype.hasOwnProperty.call(pvOfSym, p.s) || !BY[p.s];
+      if (!foreign) { kept.push(p); continue; }
+      const q = state.quotes[p.s];
+      const px = q ? (p.qty > 0 ? q.bid : q.ask) : p.avg;
+      const co = (state.companies || []).find((c) => c.symbol === p.s);
+      const pv = Object.prototype.hasOwnProperty.call(pvOfSym, p.s) ? pvOfSym[p.s] : (co && co.board === "JP" ? 0.051 : co && co.board === "US" ? 7.8 : 1);
+      const margin = (Math.abs(p.qty) * p.avg * pv) / (p.lev || 1);
+      const pnl = ((px || p.avg) - p.avg) * p.qty * pv;
+      state.cash += margin + pnl;
+    }
+    state.pos = kept;
+    const ipos = [];
+    for (const ipo of state.ipos || []) {
+      if (ipo.board === "JP" || ipo.board === "US") { state.cash += ipo.lockedHkd || 0; continue; }
+      ipos.push(ipo);
+    }
+    state.ipos = ipos;
+    state.companies = (state.companies || []).filter((c) => c.board !== "JP" && c.board !== "US");
+    if (state.pending && !BY[state.pending.s] && !(state.companies || []).some((c) => c.symbol === state.pending.s)) state.pending = null;
+    if (!BY[state.sel] && !(state.companies || []).some((c) => c.symbol === state.sel)) state.sel = "HSI";
+    if (state.coForm) state.coForm.board = "HK";
+  }
+
+  releaseForeignBooks();
   if (!state.auction) state.auction = rollAuction(state.clock);
   if (!state.reports) state.reports = seedReports(state.clock);
   else state.reports = { ...seedReports(state.clock), ...state.reports };
@@ -2958,7 +2969,7 @@
     const board = state.board || "HK";
     const phaseEl = document.getElementById("sim-phase");
     if (phaseEl) phaseEl.textContent = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
-    const flag = board === "JP" ? "N225" : board === "US" ? "SPX" : "HSI";
+    const flag = "HSI";
     const fq = state.quotes[flag];
     const fch = fq && fq.prev ? (fq.last - fq.prev) / fq.prev : 0;
     const hsiLast = document.getElementById("hsi-last");
@@ -3140,7 +3151,7 @@
       const pad = (n) => String(n).padStart(2, "0");
       return pad(p.month) + "/" + pad(p.day) + (state.tf === "1d" ? "" : " " + pad(p.hour) + ":" + pad(p.minute));
     };
-    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20" + (state.ind && state.ind.boll ? " · 布林帶(20,2)" : "") + (state.ind && state.ind.rsi ? " · RSI(14)" : "") + " · " + (mktOf(BY[state.sel]) === "JP" ? "紅漲綠跌" : "綠升紅跌");
+    return lab + " · " + fmt(a && a.t) + " → " + fmt(b && b.t) + " · 下方成交量 · SMA20" + (state.ind && state.ind.boll ? " · 布林帶(20,2)" : "") + (state.ind && state.ind.rsi ? " · RSI(14)" : "") + " · " + "綠升紅跌";
   }
   let chartRaf = 0;
   function scheduleChart() {
@@ -3154,9 +3165,8 @@
   let clockRaf = 0;
   let lastFrame = 0;
   function simRate() {
-    if (state.speed >= 60) return 5 / 75;
     if (!state.speed) return 0;
-    return 1 / Math.max(80, 900 / state.speed);
+    return state.speed / 60000;
   }
   function onFrame(now) {
     clockRaf = requestAnimationFrame(onFrame);
@@ -3195,7 +3205,7 @@
   function render() {
     const board = state.board || "HK";
     const inst = BY[state.sel], q = state.quotes[state.sel], live = dayPnlLabel();
-    const flag = board === "JP" ? "N225" : board === "US" ? "SPX" : "HSI";
+    const flag = "HSI";
     const fq = state.quotes[flag];
     const eq = live.eq, pnl = live.pnl;
     const fch = fq && fq.prev ? (fq.last - fq.prev) / fq.prev : 0;
@@ -3209,16 +3219,12 @@
     const hs = hints(series);
     const progress = Math.min(100, (eq / GOAL) * 100);
     const n = state.filter.trim();
-    const zoneName = board === "JP" ? "日本" : board === "US" ? "美東" : "香港";
-    const phaseText = board === "HK" ? sessionLabel(state.clock) : boardLabel(state.clock, board);
-    const title = board === "JP" ? "日股模擬盤" : board === "US" ? "美股模擬盤" : "港股模擬盤";
-    const flagLabel = board === "JP" ? "日經指數" : board === "US" ? "標普500" : "恒生指數";
-    const idxExtra = board === "US" ? "道指 " + Math.round(state.quotes.DJI.last).toLocaleString("en-HK") + " · 納指 " + Math.round(state.quotes.IXIC.last).toLocaleString("en-HK") : "";
-    const rules = board === "JP"
-      ? "東證現貨（日本時間）：前場競價 08:00–09:00，前場 09:00–11:30，午休 11:30–12:30，後場 12:30–15:25，收市競價 15:25–15:30。日經指數期指夜盤 17:00–翌晨 06:00（16:45 起接受競價）。現貨個股夜盤不交易。日股紅漲綠跌。帳戶以港元結算。"
-      : board === "US"
-        ? "紐約／納斯達克（美東，含夏令）：盤前 04:00–09:00，開市競價 09:00–09:30，日盤 09:30–15:50，收市競價 15:50–16:00，盤後 16:00–20:00。道瓊斯、標普500、納斯達克與個股同一時段。美股綠升紅跌。帳戶以港元結算。"
-        : "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。離開再開，當根開／高／低／收同整段陰陽燭原封保留。";
+    const zoneName = "香港";
+    const phaseText = sessionLabel(shownClock());
+    const title = "港股模擬盤";
+    const flagLabel = "恒生指數";
+    const idxExtra = "";
+    const rules = "交易時段：星期一至五。開市競價 09:00–09:20 輸入買賣盤、09:20–09:30 冷靜期；持續交易 09:30–12:00／13:00–16:00；收市競價 16:00–16:10（約 8–10 分鐘後隨機對盤）。競價只可掛對盤、當刻不成交，故陰陽燭之間可出現缺口。午休 12:00–13:00 停市。週末同休市直接跳到下一個開市。時間按真實秒數走，1 倍是一秒對一秒。";
     const quoteTag = inst.k === "crypto" ? "USD · 約 7.8 兌港元" : inst.m === "JP" ? "日圓 · 約 0.051 兌港元 · 可碎股" : inst.m === "US" ? (inst.k === "index" ? "指數 · 每點 HK$1" : "美元 · 約 7.8 兌港元") : (inst.k === "index" ? "指數 · 每點 HK$1" : "每手 " + inst.lot);
     const phaseLine = isHk(inst) ? sessionLabel(state.clock) : symbolLabel(state.clock, inst);
     const $ = document.getElementById("app");
@@ -3226,16 +3232,11 @@
       <header class="top">
         <div class="top-row">
           <div>
-            <div class="bar boards">
-              <button type="button" data-board="HK" class="${board === "HK" ? "on" : ""}">港股</button>
-              <button type="button" data-board="JP" class="${board === "JP" ? "on" : ""}">日股</button>
-              <button type="button" data-board="US" class="${board === "US" ? "on" : ""}">美股</button>
-            </div>
             <p class="kicker">Apex Jade · Paper Markets</p>
             <h1>${title}</h1>
           </div>
           <div class="controls">
-            <div class="bar speeds">${[0, 1, 4, 12, 60].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
+            <div class="bar speeds">${[0, 1, 4, 12].map((s) => `<button type="button" class="${state.speed === s ? "on" : ""}" data-speed="${s}">${s === 0 ? "暫停" : s + "x"}</button>`).join("")}</div>
             <button type="button" class="ghost" id="ticker" aria-pressed="${state.music}">${state.music ? "行情 開" : "行情"}</button>
             <button type="button" class="ghost" id="reset">重開戶口</button>
           </div>
@@ -3324,7 +3325,7 @@
       </main>
       <footer class="site">
         <span>apex-jade-onyx-harbor · 教學模擬，並非真實報價或投資建議</span>
-        <span>港股美股綠升紅跌 · 日股紅漲綠跌 · Ask 買 / Bid 賣</span>
+        <span>港股綠升紅跌 · Ask 買 / Bid 賣</span>
       </footer>
       ${state.won || state.busted ? `<div class="modal"><div class="box"><p class="kicker">${state.won ? "MISSION COMPLETE" : "MARGIN CALL"}</p><h2>${state.won ? "財富自由" : "戶口爆倉"}</h2><p class="muted">${state.won ? "總資產已達港幣一億。你可以重開戶口再挑戰一局。" : "保證金已耗盡。市場不會等你，再來一局。"}</p><p class="mono" style="font-size:22px;margin:12px 0">${fmtH(eq)}</p><button type="button" class="ghost" id="again">再來一局</button></div></div>` : ""}
       ${state.toast ? `<div class="toast" role="status">${esc(state.toast)}</div>` : ""}
@@ -3352,24 +3353,11 @@
     });
     $.querySelectorAll("[data-speed]").forEach((b) => {
       b.onclick = () => {
-        state.speed = +b.dataset.speed;
+        const n = +b.dataset.speed;
+        state.speed = n === 0 || n === 1 || n === 4 || n === 12 ? n : 1;
         persist();
         render();
         armTicker();
-      };
-    });
-    $.querySelectorAll("[data-board]").forEach((b) => {
-      b.onclick = () => {
-        const next = b.dataset.board;
-        state.board = next === "JP" || next === "US" ? next : "HK";
-        const cur = BY[state.sel];
-        if (!cur || mktOf(cur) !== state.board) {
-          state.sel = state.board === "JP" ? "N225" : state.board === "US" ? "SPX" : "HSI";
-          state.qty = "1";
-          state.lev = 1;
-        }
-        persist();
-        render();
       };
     });
     $.querySelectorAll("[data-tf]").forEach((b) => {

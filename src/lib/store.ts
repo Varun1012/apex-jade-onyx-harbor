@@ -107,7 +107,7 @@ export type AuctionOrder = {
   leverage: number;
 };
 
-export type Speed = 0 | 1 | 4 | 12 | 60;
+export type Speed = 0 | 1 | 4 | 12;
 
 export type Indicators = { boll: boolean; rsi: boolean };
 
@@ -262,6 +262,79 @@ export function positionValue(p: Position, q: Quote): number {
   const pnl = (mtm - p.avgPrice) * p.qty * inst.pointValue;
   const margin = notional(p.symbol, p.qty, p.avgPrice) / p.leverage;
   return margin + pnl;
+}
+
+const DROPPED_PV: Record<string, number> = {
+  N225: 1,
+  "7203": 0.051,
+  "8306": 0.051,
+  "9984": 0.051,
+  "6758": 0.051,
+  "8035": 0.051,
+  "6501": 0.051,
+  "9983": 0.051,
+  "8316": 0.051,
+  "7974": 0.051,
+  "6861": 0.051,
+  DJI: 1,
+  SPX: 1,
+  IXIC: 1,
+  NVDA: 7.8,
+  AAPL: 7.8,
+  MSFT: 7.8,
+  GOOGL: 7.8,
+  AMZN: 7.8,
+  META: 7.8,
+  AVGO: 7.8,
+  TSLA: 7.8,
+  JPM: 7.8,
+  LLY: 7.8,
+  XOM: 7.8,
+};
+
+function droppedPointValue(symbol: string, companies: Company[]) {
+  if (DROPPED_PV[symbol] != null) return DROPPED_PV[symbol];
+  const co = companies.find((c) => c.symbol === symbol);
+  if (co && (co.board === "JP" || co.board === "US")) return co.board === "JP" ? 0.051 : 7.8;
+  return null;
+}
+
+/** 舊存檔裡的美股、日股按當時市值兑回現金，港股持倉與現金保留。 */
+function releaseForeign(
+  cash: number,
+  positions: Position[],
+  quotes: Record<string, Quote>,
+  companies: Company[],
+  ipos: IpoOffer[],
+): { cash: number; positions: Position[]; companies: Company[]; ipos: IpoOffer[] } {
+  const nextPos: Position[] = [];
+  for (const p of positions) {
+    const pv = droppedPointValue(p.symbol, companies);
+    const inst = BY_SYMBOL[p.symbol];
+    if (pv == null || (inst && inst.market !== "JP" && inst.market !== "US")) {
+      nextPos.push(p);
+      continue;
+    }
+    const q = quotes[p.symbol];
+    const px = q ? markPrice(q, p.qty) : p.avgPrice;
+    const margin = (Math.abs(p.qty) * p.avgPrice * pv) / Math.max(1, p.leverage);
+    const pnl = (px - p.avgPrice) * p.qty * pv;
+    cash += margin + pnl;
+  }
+  const nextIpos: IpoOffer[] = [];
+  for (const ipo of ipos) {
+    if (ipo.board === "JP" || ipo.board === "US") {
+      cash += ipo.lockedHkd || 0;
+      continue;
+    }
+    nextIpos.push(ipo);
+  }
+  return {
+    cash,
+    positions: nextPos,
+    companies: companies.filter((c) => c.board !== "JP" && c.board !== "US"),
+    ipos: nextIpos,
+  };
 }
 
 export function equityOf(cash: number, positions: Position[], quotes: Record<string, Quote>): number {
@@ -567,10 +640,20 @@ export const useDesk = create<DeskState>()(
       ...initial(),
       hydrateHistories: () => {
         const st = get();
-        const companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
-        const ipos = (st.ipos ?? []).map(normalizeIpo).filter((c): c is IpoOffer => !!c);
-        syncCustomRegistry(companies);
+        let companies = (st.companies ?? []).map(normalizeCompany).filter((c): c is Company => !!c);
+        let ipos = (st.ipos ?? []).map(normalizeIpo).filter((c): c is IpoOffer => !!c);
         let quotes = mergeQuotes(st.quotes);
+        let cash = st.cash;
+        let positions = st.positions;
+        const released = releaseForeign(cash, positions, quotes, companies, ipos);
+        cash = released.cash;
+        positions = released.positions;
+        companies = released.companies;
+        ipos = released.ipos;
+        const board: Board = "HK";
+        const selected = (BY_SYMBOL[st.selected]?.market ?? "HK") === "HK" || companies.some((c) => c.symbol === st.selected) ? st.selected : "HSI";
+        const pending = st.pending && (BY_SYMBOL[st.pending.symbol] || companies.some((c) => c.symbol === st.pending!.symbol)) ? st.pending : null;
+        syncCustomRegistry(companies);
         for (const c of companies) {
           if (!quotes[c.symbol]) quotes[c.symbol] = blankQuote(toInstrument(c), c.offer);
         }
@@ -606,11 +689,11 @@ export const useDesk = create<DeskState>()(
           ),
           ...(st.dividends ?? {}),
         };
-        set({ quotes, candles: candlesFilled, histories, auction, reports, dividends, companies, ipos });
+        set({ quotes, candles: candlesFilled, histories, auction, reports, dividends, companies, ipos, cash, positions, board, selected, pending });
         saveCandleBook(candlesFilled);
       },
       select: (symbol) => set({ selected: symbol }),
-      setSpeed: (s) => set({ speed: s }),
+      setSpeed: (s) => set({ speed: s === 1 || s === 4 || s === 12 || s === 0 ? s : 1 }),
       setBoard: (b) =>
         set((s) => {
           const cur = BY_SYMBOL[s.selected];

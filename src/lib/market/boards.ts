@@ -288,7 +288,7 @@ export function hkActive(t: number): boolean {
 }
 
 export function anyBoardActive(t: number): boolean {
-  return hkActive(t) || foreignActive(t);
+  return hkActive(t);
 }
 
 export function nextBoardActive(from: number): number {
